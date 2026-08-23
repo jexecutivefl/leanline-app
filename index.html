@@ -1769,7 +1769,7 @@ function onbHead(title, sub) {
    survive a DOM rebuild. */
 function onbCanNext(d) {
   if (d.step === 1) return !!d.name.trim();
-  if (d.step === 2) return !!(d.birthYear && d.heightCm && d.weightLb > 0);
+  if (d.step === 2) return onbStep2Problems(d).length === 0;
   return true;
 }
 function onbNav(nextLabel) {
@@ -1788,6 +1788,13 @@ function onbSync() {
   if (!d) return;
   const cm = el("obCm");
   if (cm) cm.textContent = d.heightCm ? "= " + R1(d.heightCm) + " cm" : "";
+  const why = el("obWhy");
+  if (why && d.step === 2) {
+    /* only complain about a field that has something in it — an empty form is
+       not an error, it is an empty form */
+    const said = onbStep2Problems(d).filter(x => !/ is needed\.$/.test(x));
+    why.textContent = said.join("  ");
+  }
   const btn = el("obNext");
   if (btn) {
     const can = onbCanNext(d);
@@ -1835,6 +1842,8 @@ function viewOnboarding() {
       '<input id="obWt" type="number" inputmode="decimal" value="' + (d.weightLb || "") + '" data-act="onbField" data-k="weightLb" placeholder="180"></div></div>';
     h += '<p class="muted num" id="obCm" style="font-size:.8125rem;margin:0">' +
       (d.heightCm ? '= ' + R1(d.heightCm) + ' cm' : '') + '</p>';
+    h += '<p class="warn" id="obWhy" role="status" style="font-size:.875rem;margin:.3rem 0 0">' +
+      esc(onbStep2Problems(d).filter(x => !/ is needed\.$/.test(x)).join("  ")) + '</p>';
     h += onbNav("Next ›");
   }
 
@@ -2972,12 +2981,43 @@ function ageFrom(birthYear) {
 /* BMR. Both equations below reproduce this project's own worked examples
    exactly — Mifflin gives 1,909 for the adult and Schofield 1,947 for the minor,
    which is why they are the two that are implemented and the only two. */
+/* LL-621. The wizard used to gate step 2 on "is there a value", which let a
+   half-typed year through: 198 reads as an 1,828-year-old, Mifflin returns
+   −7,000 kcal, and onbCommit() writes that as a calorie TARGET. A health app
+   must not carry a negative target, and a disabled Next with no reason is not
+   a fix, so the range is named on screen next to the field that is out of it.
+   The bands are deliberately generous — this refuses nonsense, not unusual
+   people. */
+const ONB_BANDS = {
+  age:      { lo: 5,   hi: 100, label: "age", why: "Age must be between 5 and 100. Check the year of birth." },
+  heightCm: { lo: 100, hi: 250, label: "height", why: "Height must be between 3 ft 3 in and 8 ft 2 in." },
+  weightLb: { lo: 50,  hi: 700, label: "weight", why: "Weight must be between 50 and 700 lb." }
+};
+function inBand(k, v) { const b = ONB_BANDS[k]; return v != null && v >= b.lo && v <= b.hi; }
+/* Every reason step 2 is not finished, in the order they appear on screen. */
+function onbStep2Problems(d) {
+  const out = [];
+  if (d.birthYear == null) out.push("Year of birth is needed.");
+  else if (!inBand("age", ageFrom(d.birthYear))) out.push(ONB_BANDS.age.why);
+  if (d.heightCm == null) out.push("Height is needed.");
+  else if (!inBand("heightCm", d.heightCm)) out.push(ONB_BANDS.heightCm.why);
+  if (d.weightLb == null) out.push("Weight is needed.");
+  else if (!inBand("weightLb", d.weightLb)) out.push(ONB_BANDS.weightLb.why);
+  return out;
+}
 function bmrFor(d) {
   /* Round the inputs BEFORE using them, so the arithmetic printed on screen is
      the arithmetic that ran. A shown calculation that does not reproduce is
      worse than no calculation. */
   const kg = Math.round(d.weightLb * 0.45359237 * 10) / 10, cm = d.heightCm, age = ageFrom(d.birthYear);
   if (!(kg > 0) || !(cm > 0) || !age) return { ok: false, why: "Height, weight and age are all needed first." };
+  /* LL-621: the last line of defence. The wizard gates on the same bands, but
+     bmrFor() is also reached from the settings editor and from an import, and
+     an equation run on an impossible input returns a confident wrong number
+     rather than failing. */
+  if (!inBand("age", age)) return { ok: false, outOfBand: "age", why: ONB_BANDS.age.why };
+  if (!inBand("heightCm", cm)) return { ok: false, outOfBand: "heightCm", why: ONB_BANDS.heightCm.why };
+  if (!inBand("weightLb", d.weightLb)) return { ok: false, outOfBand: "weightLb", why: ONB_BANDS.weightLb.why };
   if (d.isMinor) {
     /* Schofield (1985), the WHO/FAO/UNU standard for adolescents. Adult
        equations do not model the energy cost of growth and must not be used.
@@ -3052,6 +3092,10 @@ const ONB_STEPS = 6;
 function onbCommit() {
   const d = UI.onb;
   const t = d.manual || computeTargets(d);
+  /* LL-621: nothing reaches a profile unless it is a real, positive target.
+     Belt and braces behind onbCanNext — a caller that skips the wizard steps
+     (a test, a future entry point) must not be able to write a negative one. */
+  if (!t || !t.ok || !(t.kcal > 0) || !(t.protein > 0)) return null;
   const id = uid("p");
   const times = { 3: ["07:30", "12:30", "18:30"],
                   4: ["07:00", "12:00", "17:00", "20:30"],
@@ -4280,7 +4324,11 @@ const ACTS = {
         d.manual = m;
       } else d.manual = null;
     }
-    if (d.step >= ONB_STEPS) { const id = onbCommit(); render(); toast(S.profiles[id].name + " is set up"); return; }
+    if (d.step >= ONB_STEPS) {
+      const id = onbCommit();
+      if (!id) { alert("Those numbers do not produce a usable target. Go back and check the year of birth, height and weight."); return; }
+      render(); toast(S.profiles[id].name + " is set up"); return;
+    }
     d.step++; render();
   },
   onbField(t) {
