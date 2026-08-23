@@ -904,6 +904,22 @@ function cellRemoveAt(p, dateStr, slotId, idx) {
   if (!arr.some(x => x.slotId === slotId)) arr.push({ slotId, source: "empty", refId: null, grams: null });
   save();
 }
+/* LL-619: a plan row the app added only because the meal was logged carries
+   the log entry's id. Removing the log removes the row, so a mis-logged meal
+   cannot linger on the week's plan or on the grocery list. The row is dropped
+   outright rather than replaced with the "empty" marker: undoing a log should
+   leave the cell exactly as it was, template fallback included. */
+function removePlannedFromLog(p, dateStr, slotId, entryId) {
+  const wid = weekIdOf(dateStr);
+  const arr = planDay(wid, dateStr, p.id, false);
+  if (!arr) return false;
+  const i = arr.findIndex(x => x.slotId === slotId && x.fromLog === entryId);
+  if (i < 0) return false;
+  arr.splice(i, 1);
+  pruneCell(wid, dateStr, p.id);
+  save();
+  return true;
+}
 function cellResetToTemplate(p, dateStr, slotId) {
   const wid = weekIdOf(dateStr);
   const arr = planDay(wid, dateStr, p.id, false);
@@ -1143,10 +1159,11 @@ function buyTarget(food) {
   if (!raw || !raw.per100g.kcal) return null;
   return { food: raw, factor: food.per100g.kcal / raw.per100g.kcal };
 }
-/* foodId → raw grams the week needs, before the pantry. */
-function groceryNeed(weekId) {
-  const need = {};
-  const add = (fid, g) => {
+/* Adds grams onto a foodId → raw grams map, routing a cooked form to the raw
+   form it is bought as. Shared so the week list and a single-day list cannot
+   diverge on what "buy" means. */
+function needAdder(need) {
+  return (fid, g) => {
     if (!(g > 0)) return;
     const f = S.foods[fid];
     if (!f) return;
@@ -1154,6 +1171,11 @@ function groceryNeed(weekId) {
     if (t) { need[t.food.id] = (need[t.food.id] || 0) + g * t.factor; return; }
     need[fid] = (need[fid] || 0) + g;
   };
+}
+/* foodId → raw grams the week needs, before the pantry. */
+function groceryNeed(weekId) {
+  const need = {};
+  const add = needAdder(need);
   for (const b of weekBatches(weekId)) {
     if (!b.recipe) continue;
     for (const ing of b.recipe.ingredients) add(ing.foodId, ing.rawGrams * b.chosen);
@@ -1165,6 +1187,30 @@ function groceryNeed(weekId) {
           if (it.source === "food") add(it.refId, it.grams || 0);
   return need;
 }
+/* LL-620: raw grams an arbitrary run of days calls for, straight from the plan.
+   The WEEK list deliberately does not use this — it shops at the batch
+   multipliers in the batch panel, which are rounded up to whole cooks. A single
+   day is not a batch, so it is shopped at exactly what that day needs. */
+function needForDates(dates) {
+  const need = {};
+  const add = needAdder(need);
+  for (const p of Object.values(S.profiles)) {
+    for (const d of dates) {
+      for (const sl of p.slots) {
+        for (const it of plannedItems(p, d, sl.id)) {
+          if (it.source === "food") { add(it.refId, it.grams || 0); continue; }
+          if (it.source !== "recipe") continue;
+          const r = S.recipes[it.refId];
+          if (!r || !r.servings) continue;
+          const mult = servingsOfItem(it) / r.servings;
+          if (!(mult > 0)) continue;
+          for (const ing of (r.ingredients || [])) add(ing.foodId, ing.rawGrams * mult);
+        }
+      }
+    }
+  }
+  return need;
+}
 function pantryGrams(foodId) {
   const e = S.pantry[foodId];
   return e && e.grams > 0 ? e.grams : 0;
@@ -1172,6 +1218,22 @@ function pantryGrams(foodId) {
 /* Regenerating keeps the tick on any line whose numbers did not move, and
    never drops a line — a line the week no longer needs is MARKED removed so
    a crossed-off item cannot silently vanish from a list already in a pocket. */
+/* One shopping line: what the plan needs, what the pantry holds, what is left
+   to buy, and how that is actually sold. */
+function groceryLineFor(foodId, rawG, weekId) {
+  const f = S.foods[foodId];
+  if (!f) return null;
+  const haveG = pantryGrams(foodId), needG = Math.max(0, rawG - haveG);
+  return {
+    foodId, name: f.name, aisle: f.aisle || "Other", rawG, haveG, needG,
+    purchaseUnit: purchaseUnitFor(f, needG), have: haveG > 0,
+    checked: false, perishBy: perishByFor(f, weekId), removed: false
+  };
+}
+function linesFromNeed(need, weekId) {
+  return Object.keys(need).map(fid => groceryLineFor(fid, need[fid], weekId))
+    .filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
+}
 function generateGrocery(weekId) {
   const need = groceryNeed(weekId);
   const prev = S.grocery[weekId] || [];
@@ -1185,16 +1247,7 @@ function generateGrocery(weekId) {
     const old = prevById[fid];
     const unchanged = !!old && !old.removed &&
       Math.abs((old.rawG || 0) - rawG) < 0.5 && Math.abs((old.needG || 0) - needG) < 0.5;
-    out.push({
-      foodId: fid, name: f.name,
-      aisle: f.aisle || "Other",
-      rawG, haveG, needG,
-      purchaseUnit: purchaseUnitFor(f, needG),
-      have: haveG > 0,
-      checked: unchanged ? !!old.checked : false,
-      perishBy: perishByFor(f, weekId),
-      removed: false
-    });
+    out.push(Object.assign(groceryLineFor(fid, rawG, weekId), { checked: unchanged ? !!old.checked : false }));
     seen[fid] = true;
   }
   for (const l of prev) if (!seen[l.foodId]) out.push(Object.assign({}, l, { removed: true, rawG: 0, needG: 0 }));
@@ -1203,6 +1256,58 @@ function generateGrocery(weekId) {
   save();
   return out;
 }
+/* ---- the list you can take out of the app (LL-620) ---------
+   A grocery list is only useful in a shop, and the shop is not this app. This
+   renders the same lines the Grocery screen shows as plain text — aisle by
+   aisle, a box to tick, grams beside the way the thing is actually sold — and
+   hands it over as a file. Text, not PDF: it opens in Notes, prints, pastes
+   into a message, and needs no library, which constraint 1 would not allow.
+   ------------------------------------------------------------ */
+function groceryText(lines, title, sub, foot) {
+  const live = lines.filter(l => !l.removed && l.needG > 0);
+  const out = ["LEANLINE — GROCERY LIST", title];
+  if (sub) out.push(sub);
+  out.push("------------------------------------------------", "");
+  if (!live.length) {
+    out.push("Nothing to buy. Either nothing is planned for this, or the");
+    out.push("pantry already covers all of it.", "");
+  }
+  const byAisle = {};
+  for (const l of live) (byAisle[l.aisle] || (byAisle[l.aisle] = [])).push(l);
+  const known = AISLES.filter(a => byAisle[a] && byAisle[a].length);
+  const extra = Object.keys(byAisle).filter(a => AISLES.indexOf(a) < 0).sort();
+  for (const aisle of known.concat(extra)) {
+    out.push(aisle.toUpperCase());
+    for (const l of byAisle[aisle]) {
+      const f = S.foods[l.foodId];
+      out.push("  [ ] " + l.name + " — " + num(l.needG) + " g" +
+        (l.purchaseUnit ? "   (" + l.purchaseUnit + ")" : ""));
+      if (l.haveG > 0) out.push("        pantry already holds " + num(l.haveG) + " g");
+      if (l.perishBy) out.push("        use by " + fmtDate(l.perishBy));
+      if (f && f.perishNote) out.push("        " + f.perishNote);
+      /* constraint 10: a number never travels without its confidence */
+      if (f && f.confidence !== "verified") out.push("        macros are " + f.confidence.toUpperCase());
+    }
+    out.push("");
+  }
+  if (foot) out.push("------------------------------------------------", foot, "");
+  out.push("Built on this device. Nothing about it left the phone.");
+  return out.join("\n");
+}
+/* The one place a file leaves the app. Used by the JSON export too. */
+function downloadFile(filename, text, mime) {
+  const blob = new Blob([text], { type: mime || "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+function shoppingFor() {
+  const names = Object.values(S.profiles).map(pr => pr.name);
+  return names.length ? names.join(" + ") : "nobody set up yet";
+}
+
 /* ---- protein sanity check (LL-204) -------------------------
    Instructions §8: total the protein weight at the bottom as a check against
    the week's combined protein. This is the line that catches a dropped item —
@@ -1659,12 +1764,36 @@ function onbHead(title, sub) {
     '<h2 style="font-size:1.375rem;margin:.5rem 0 .2rem">' + esc(title) + '</h2>' +
     (sub ? '<p class="muted" style="font-size:.9375rem;margin:0">' + esc(sub) + '</p>' : '') + '</div>';
 }
-function onbNav(nextLabel, canNext) {
-  const d = UI.onb;
+/* Which steps gate Next, in one place. onbSync() flips the live button
+   against this without re-rendering, so a half-typed number never has to
+   survive a DOM rebuild. */
+function onbCanNext(d) {
+  if (d.step === 1) return !!d.name.trim();
+  if (d.step === 2) return !!(d.birthYear && d.heightCm && d.weightLb > 0);
+  return true;
+}
+function onbNav(nextLabel) {
+  const d = UI.onb, can = onbCanNext(d);
   return '<div class="onbnav">' +
     (d.step > 1 ? '<button class="btn" data-act="onbBack">‹ Back</button>' : '<span></span>') +
-    '<button class="btn primary tall" data-act="onbNext"' + (canNext === false ? ' disabled aria-disabled="true"' : '') + '>' +
+    '<button class="btn primary tall" id="obNext" data-act="onbNext"' + (can ? '' : ' disabled aria-disabled="true"') + '>' +
     esc(nextLabel || "Next ›") + '</button></div>';
+}
+/* Typing in a wizard field updates ONLY the two things that depend on it: the
+   height readout and the Next button. render() used to run here, which
+   destroyed the very input under the thumb and dropped the caret after a
+   single digit (LL-618). Nothing in this function touches an input's value. */
+function onbSync() {
+  const d = UI.onb;
+  if (!d) return;
+  const cm = el("obCm");
+  if (cm) cm.textContent = d.heightCm ? "= " + R1(d.heightCm) + " cm" : "";
+  const btn = el("obNext");
+  if (btn) {
+    const can = onbCanNext(d);
+    btn.disabled = !can;
+    btn.setAttribute("aria-disabled", can ? "false" : "true");
+  }
 }
 
 function viewOnboarding() {
@@ -1686,7 +1815,7 @@ function viewOnboarding() {
         'Targets stay marked provisional until an adult confirms a clinician has signed them off. ' +
         'None of this can be switched off later.</div>';
     }
-    h += onbNav("Next ›", !!d.name.trim());
+    h += onbNav("Next ›");
   }
 
   else if (d.step === 2) {
@@ -1704,9 +1833,9 @@ function viewOnboarding() {
       '<input id="obIn" type="number" inputmode="numeric" value="' + (d.heightIn == null ? "" : d.heightIn) + '" data-act="onbField" data-k="heightIn" placeholder="11"></div>' +
       '<div class="field"><label for="obWt">Weight lb</label>' +
       '<input id="obWt" type="number" inputmode="decimal" value="' + (d.weightLb || "") + '" data-act="onbField" data-k="weightLb" placeholder="180"></div></div>';
-    if (d.heightCm) h += '<p class="muted num" style="font-size:.8125rem;margin:0">= ' + R1(d.heightCm) + ' cm</p>';
-    const ready = !!(d.birthYear && d.heightCm && d.weightLb > 0);
-    h += onbNav("Next ›", ready);
+    h += '<p class="muted num" id="obCm" style="font-size:.8125rem;margin:0">' +
+      (d.heightCm ? '= ' + R1(d.heightCm) + ' cm' : '') + '</p>';
+    h += onbNav("Next ›");
   }
 
   else if (d.step === 3) {
@@ -1747,7 +1876,7 @@ function viewOnboarding() {
         '<div class="two" style="margin-top:.5rem">' +
         numField("obF", "Fat g", m.fat == null ? "" : m.fat) +
         numField("obFib", "Fiber g", m.fiber == null ? "" : m.fiber) + '</div>';
-      h += onbNav("Next ›", true);
+      h += onbNav("Next ›");
     } else {
       h += '<div class="card" style="margin-top:.6rem"><table class="mono-table"><tbody>' +
         '<tr><td>Calories</td><td>' + num(t.kcal) + ' kcal</td></tr>' +
@@ -3302,13 +3431,14 @@ function viewGrocery() {
   if (!list) {
     h += '<p style="margin:.5rem 0 .6rem">No list for this week yet. It is built from the week&rsquo;s plan at the multipliers in the batch panel, minus what the pantry already holds.</p>' +
       '<button class="btn primary full tall" data-act="groceryGen">Generate grocery list</button></div>';
-    return h;
+    return h + viewGroceryDownload(wid, false);
   }
   const live = list.filter(l => !l.removed && l.needG > 0);
   const removed = list.filter(l => l.removed);
   h += '<p class="muted" style="margin:.35rem 0 .6rem;font-size:.9375rem">' + live.length + ' to buy · ' +
     live.filter(l => l.checked).length + ' ticked</p>' +
     '<button class="btn full" data-act="groceryGen">Regenerate from the plan</button></div>';
+  h += viewGroceryDownload(wid, true);
 
   const guard = tortillaGuard(wid);
   const byAisle = {};
@@ -3333,6 +3463,27 @@ function viewGrocery() {
     for (const l of removed) h += '<div class="item"><span class="grow nm muted">' + esc(l.name) + '</span></div>';
     h += '</div></div>';
   }
+  return h;
+}
+/* LL-620. Two scopes, because that is how shopping actually happens: the week
+   at the batch sizes being cooked, or one day at exactly what that day needs —
+   whichever of Today or the Plan the meals were entered on, since LL-619 they
+   are the same rows. */
+function viewGroceryDownload(weekId, haveWeek) {
+  const dates = weekDates(weekId);
+  const pick = dates.includes(UI.date) ? UI.date : dates[0];
+  let h = '<div class="card"><div class="eyebrow">Take it to the shop</div>' +
+    '<p class="muted" style="font-size:.875rem;margin:.35rem 0 .6rem">Downloads a plain text list, aisle by aisle, with a box to tick beside every item. It opens and prints anywhere and never leaves the phone unless you send it.</p>';
+  if (haveWeek) {
+    h += '<button class="btn full tall" data-act="groceryDownload" data-scope="week">⤓ Download the whole week</button>' +
+      '<div class="rule"></div>';
+  }
+  h += '<div class="field"><label for="gdDay">One day instead</label><select id="gdDay">' +
+    dates.map(d => '<option value="' + d + '"' + (d === pick ? " selected" : "") + '>' + esc(fmtDate(d)) + '</option>').join("") +
+    '</select></div>' +
+    '<button class="btn full tall" data-act="groceryDownload" data-scope="day">⤓ Download that day</button>' +
+    '<p class="muted" style="font-size:.8125rem;margin:.4rem 0 0">A day is shopped at exactly what its meals call for. The week is shopped at the batch multipliers, which round up to whole cooks.</p>' +
+    '</div>';
   return h;
 }
 function groceryRow(weekId, l, guard) {
@@ -3691,9 +3842,13 @@ function sheetSlot(slotId) {
     h += '</div><div class="rule"></div>';
   }
 
+  const addBtn = '<div style="height:.6rem"></div>' +
+    '<button class="btn full tall" data-act="slotPlanAdd">＋ Add a recipe or a food to this meal</button>' +
+    '<p class="muted" style="font-size:.8125rem;margin:.35rem 0 0">Goes on this day&rsquo;s plan, so it shows here, in the week grid, and on the grocery list.</p>';
+
   const planned = plannedItems(p, d, slotId);
   if (!planned.length) {
-    h += '<p>Nothing planned for this slot. Log a food from the Food tab.</p>';
+    h += '<p style="margin:0">Nothing in this meal yet.</p>' + addBtn;
     openSheet(h, { slotId }); return;
   }
   h += '<div class="eyebrow">Planned — adjust before logging</div><div style="margin-top:.5rem" id="plannedRows">';
@@ -3706,7 +3861,7 @@ function sheetSlot(slotId) {
       '<span class="muted num" style="width:5rem;text-align:right">' + (it.servings != null ? "servings" : "g") + '</span></div></div>';
   });
   h += '</div><div class="rule"></div><div class="row"><span class="grow eyebrow">Total</span><span class="num" id="plTotal"></span></div>' +
-    '<div style="height:.6rem"></div><button class="btn primary full tall" data-act="logPlanned">Log ' + esc(s.name) + '</button>';
+    '<div style="height:.6rem"></div><button class="btn primary full tall" data-act="logPlanned">Log ' + esc(s.name) + '</button>' + addBtn;
   openSheet(h, { slotId, items: planned.map(it => Object.assign({}, it)) });
   updatePlannedTotal();
 }
@@ -3719,8 +3874,8 @@ function updatePlannedTotal() {
 }
 
 /* ---------- plan cell sheet — assign, clear to template, clear to empty ---------- */
-function sheetCell(dateStr, slotId) {
-  const p = S.profiles[planPid()], s = slotOf(p, slotId);
+function sheetCell(dateStr, slotId, pid) {
+  const p = S.profiles[pid || planPid()], s = slotOf(p, slotId);
   const items = plannedItems(p, dateStr, slotId);
   const explicit = slotIsExplicit(p, dateStr, slotId);
   let h = sheetHead(s.name + " · " + fmtDate(dateStr),
@@ -3753,16 +3908,21 @@ function sheetCell(dateStr, slotId) {
     '<p class="muted" style="font-size:.8125rem;margin:.4rem 0 0">“Back to template” returns this cell to ' + esc(p.name) +
     '&rsquo;s day template. “Clear to empty” keeps it empty for this week only. Neither touches anything already logged.</p>';
 
-  openSheet(h, { cell: { date: dateStr, slotId, pid: p.id } });
+  openSheet(h, { cell: { date: dateStr, slotId, pid: p.id, origin: "plan" } });
 }
 
-/* step 1 — choose a recipe or a food */
-function sheetCellAdd(dateStr, slotId, q) {
-  const p = S.profiles[planPid()], s = slotOf(p, slotId);
+/* step 1 — choose a recipe or a food.
+   `cell` is { date, slotId, pid, origin }. origin is "plan" when the flow was
+   opened from the week grid and "today" when it was opened from a Today slot —
+   the only difference is which sheet Back and Save return to. Both write to the
+   same place, which is the point of LL-619. */
+function sheetCellAdd(cell, q) {
+  const dateStr = cell.date, slotId = cell.slotId;
+  const p = S.profiles[cell.pid], s = slotOf(p, slotId);
   UI.cellQ = q == null ? (UI.cellQ || "") : q;
   const query = UI.cellQ.trim().toLowerCase();
   let h = sheetHead("Add to " + s.name, fmtDate(dateStr) + " · " + p.name);
-  h += '<button class="btn sm" data-act="cellBack">‹ Back to the slot</button>';
+  h += '<button class="btn sm" data-act="cellBack">‹ Back to the ' + (cell.origin === "today" ? "meal" : "slot") + '</button>';
   h += '<div class="field" style="margin-top:.6rem"><label for="cq">Search recipes and foods</label>' +
     '<input id="cq" type="search" value="' + esc(UI.cellQ) + '" data-act="cellSearch" placeholder="fajitas, rice, milk…"></div>';
 
@@ -3773,7 +3933,7 @@ function sheetCellAdd(dateStr, slotId, q) {
   if (foods.length) h += '<div class="card"><div class="eyebrow">Foods</div><div style="margin-top:.5rem">' +
     foods.map(f => cellPickRow("food", f.id, f.name, f.confidence)).join("") + '</div></div>';
   if (!recs.length && !foods.length) h += '<div class="card"><p style="margin:0">Nothing matches that. Add it on the Food tab first, with its numbers and where they came from.</p></div>';
-  openSheet(h, { cell: { date: dateStr, slotId, pid: p.id } });
+  openSheet(h, { cell: cell });
 }
 function cellPickRow(src, id, name, conf) {
   return '<button class="item" data-act="cellPick" data-src="' + src + '" data-id="' + id + '">' +
@@ -3781,8 +3941,9 @@ function cellPickRow(src, id, name, conf) {
 }
 
 /* step 2 — how much */
-function sheetCellAmount(dateStr, slotId, src, id, unit, amount) {
-  const p = S.profiles[planPid()], s = slotOf(p, slotId);
+function sheetCellAmount(cell, src, id, unit, amount) {
+  const dateStr = cell.date, slotId = cell.slotId;
+  const p = S.profiles[cell.pid], s = slotOf(p, slotId);
   const o = src === "food" ? S.foods[id] : S.recipes[id];
   if (!o) return;
   const c = src === "food" ? null : (o.computed || computeRecipe(o).computed);
@@ -3813,7 +3974,7 @@ function sheetCellAmount(dateStr, slotId, src, id, unit, amount) {
 
   h += '<div class="rule"></div><div class="row"><span class="grow eyebrow">This assignment</span><span class="num" id="caTotal"></span></div>' +
     '<div style="height:.6rem"></div><button class="btn primary full tall" data-act="cellSave">Add to ' + esc(s.name) + '</button>';
-  openSheet(h, { cell: { date: dateStr, slotId, pid: p.id }, add: { src, id, unit, amount } });
+  openSheet(h, { cell: cell, add: { src, id, unit, amount } });
   updateCellTotal();
 }
 function cellDraftItem(a) {
@@ -3860,8 +4021,15 @@ function sheetPick(src, id) {
     }
   }
 
-  h += '<div class="rule"></div><div class="row"><span class="grow eyebrow">This entry</span><span class="num" id="pkTotal"></span></div>' +
-    '<div style="height:.6rem"></div><button class="btn primary full tall" data-act="pkLog">Log it</button>';
+  h += '<div class="rule"></div><div class="row"><span class="grow eyebrow">This entry</span><span class="num" id="pkTotal"></span></div>';
+  /* LL-619: ticked by default so Today and the week's Plan hold the same meals
+     without anybody having to enter them twice. Untick to log something that is
+     not part of the plan and should not reach the grocery list. */
+  h += '<label class="tap" style="gap:.6rem;margin-top:.4rem">' +
+    '<input type="checkbox" id="pkPlan" checked aria-label="Also add this to the plan for that meal"> ' +
+    'Also add it to the plan for that meal</label>' +
+    '<p class="muted" style="font-size:.8125rem;margin:.1rem 0 0">Keeps Today and the week grid showing the same meals, and puts it on the grocery list. Removing the log removes it again.</p>';
+  h += '<div style="height:.6rem"></div><button class="btn primary full tall" data-act="pkLog">Log it</button>';
 
   if (src === "food") {
     const fav = (S.favorites[p.id] || []).includes(id);
@@ -4022,23 +4190,38 @@ function toast(msg) {
   setTimeout(() => n.remove(), 2200);
 }
 
-function logItems(slotId, items, methodTag) {
+/* alsoPlan (LL-619) writes the same item into that day's plan cell, tagged with
+   the log entry's id. It is how Today and Plan stay one set of meals: anything
+   entered on Today shows up in the week grid and on the grocery list. It is
+   NEVER passed when the items came FROM the plan — those rows are already there
+   and would be duplicated. */
+function logItems(slotId, items, methodTag, alsoPlan) {
   const p = profile(), d = UI.date, arr = logsFor(p.id, d);
   let n = 0;
   for (const it of items) {
     const r = resolveItem(it);
     if (!r) continue;
     const conf = methodTag === "estimate" ? "estimated" : r.confidence;
-    arr.push({
+    const entry = {
       id: uid("e"), ts: Date.now(), slotId, name: r.name + (methodTag === "estimate" ? " (estimated ±25%)" : ""),
       grams: r.grams, servings: r.servings, macros: r.macros, fiberKnown: r.fiberKnown,
       confidence: conf, method: methodTag, source: r.source, refId: r.refId
-    });
+    };
+    arr.push(entry);
+    if (alsoPlan) cellAdd(p, d, slotId, planRowOf(it, entry.id));
     n++;
   }
   save();
   noteWrite(n);
   return n;
+}
+/* The log item and the plan row are the same three fields. This keeps the
+   servings/grams split identical to cellDraftItem() so the two entry points
+   cannot drift apart. */
+function planRowOf(it, entryId) {
+  return it.servings != null
+    ? { source: it.source, refId: it.refId, servings: it.servings, grams: null, fromLog: entryId }
+    : { source: it.source, refId: it.refId, grams: it.grams, fromLog: entryId };
 }
 
 const ACTS = {
@@ -4102,17 +4285,14 @@ const ACTS = {
   },
   onbField(t) {
     const d = UI.onb, k = t.dataset.k;
-    if (k === "name") { d.name = t.value; return; }
+    if (k === "name") { d.name = t.value; onbSync(); return; }
     const v = t.value.trim() === "" ? null : parseFloat(t.value);
     d[k] = v;
     if (k === "heightFt" || k === "heightIn") {
       const ft = d.heightFt || 0, inch = d.heightIn || 0;
       d.heightCm = (ft || inch) ? (ft * 12 + inch) * 2.54 : null;
-      render();
-      const back = el(k === "heightFt" ? "obFt" : "obIn"); if (back) back.focus();
-      return;
     }
-    if (k === "birthYear" || k === "weightLb") render();
+    onbSync();
   },
   onbSet(t) {
     const d = UI.onb, k = t.dataset.k, raw = t.dataset.v;
@@ -4200,6 +4380,30 @@ const ACTS = {
     if (!r.distress) toast("Note saved");
   },
   groceryOpen() { const wid = UI.weekStart || (UI.weekStart = weekIdOf(UI.date)); if (!S.grocery[wid]) generateGrocery(wid); UI.tab = "grocery"; render(); },
+  groceryDownload(t) {
+    const wid = UI.weekStart || (UI.weekStart = weekIdOf(UI.date));
+    if (t.dataset.scope === "day") {
+      const sel = el("gdDay");
+      const d = (sel && sel.value) || UI.date;
+      const lines = linesFromNeed(needForDates([d]), wid);
+      downloadFile("leanline-grocery-" + d + ".txt",
+        groceryText(lines, fmtDate(d),
+          shoppingFor() + " · from that day's meals, pantry stock subtracted"));
+      toast("Downloaded " + fmtDate(d));
+      return;
+    }
+    const list = S.grocery[wid] || generateGrocery(wid);
+    const c = proteinCheck(wid);
+    const foot = c.need > 0
+      ? "Protein check: the cart carries " + num(c.cart) + " g against the " + num(c.need) +
+        " g the week's meals call for (" + (c.variancePct >= 0 ? "+" : "−") + R1(Math.abs(c.variancePct)) +
+        "%). More than 10% light usually means something fell off the list."
+      : null;
+    downloadFile("leanline-grocery-week-" + wid + ".txt",
+      groceryText(list, "Week of " + weekLabel(wid),
+        shoppingFor() + " · at the batch multipliers in the plan, pantry stock subtracted", foot));
+    toast("Downloaded the week");
+  },
   groceryGen() { const n = generateGrocery(UI.weekStart); render(); toast(n.filter(l => !l.removed && l.needG > 0).length + " items to buy"); },
   groceryTick(t) { toggleGroceryCheck(UI.weekStart, t.dataset.id); render(); },
   groceryStock(t) {
@@ -4237,37 +4441,47 @@ const ACTS = {
   planUndo() { const l = undoPlans(); render(); toast(l ? "Undone" : "Nothing to undo"); },
 
   cellOpen(t) { sheetCell(t.dataset.d, t.dataset.slot); },
-  cellBack() { const c = sheetState.cell; sheetCell(c.date, c.slotId); },
-  cellAddOpen() { const c = sheetState.cell; sheetCellAdd(c.date, c.slotId, null); },
+  cellBack() {
+    const c = sheetState.cell;
+    if (c.origin === "today") sheetSlot(c.slotId); else sheetCell(c.date, c.slotId, c.pid);
+  },
+  cellAddOpen() { sheetCellAdd(sheetState.cell, null); },
   cellSearch(t) {
-    const c = sheetState.cell, pos = t.selectionStart;
-    sheetCellAdd(c.date, c.slotId, t.value);
+    const pos = t.selectionStart;
+    sheetCellAdd(sheetState.cell, t.value);
     const q = el("cq"); if (q) { q.focus(); try { q.setSelectionRange(pos, pos); } catch (e) { } }
   },
-  cellPick(t) { const c = sheetState.cell; sheetCellAmount(c.date, c.slotId, t.dataset.src, t.dataset.id); },
-  cellUnit(t) { const c = sheetState.cell, a = sheetState.add; sheetCellAmount(c.date, c.slotId, a.src, a.id, t.dataset.u, null); },
+  cellPick(t) { sheetCellAmount(sheetState.cell, t.dataset.src, t.dataset.id); },
+  cellUnit(t) { const a = sheetState.add; sheetCellAmount(sheetState.cell, a.src, a.id, t.dataset.u, null); },
   cellAmt(t) { sheetState.add.amount = parseFloat(t.value) || 0; updateCellTotal(); },
   cellHint(t) { sheetState.add.amount = +t.dataset.g; el("caAmt").value = t.dataset.g; updateCellTotal(); },
   cellSave() {
     const c = sheetState.cell, a = sheetState.add;
     if (!(a.amount > 0)) { alert("Give it an amount above zero."); return; }
     cellAdd(S.profiles[c.pid], c.date, c.slotId, cellDraftItem(a));
-    sheetCell(c.date, c.slotId); render(); toast("Added to the plan");
+    if (c.origin === "today") { sheetSlot(c.slotId); render(); toast("Added to this meal and to the plan"); return; }
+    sheetCell(c.date, c.slotId, c.pid); render(); toast("Added to the plan");
   },
   cellDel(t) {
     const c = sheetState.cell;
     cellRemoveAt(S.profiles[c.pid], c.date, c.slotId, +t.dataset.i);
-    sheetCell(c.date, c.slotId); render();
+    sheetCell(c.date, c.slotId, c.pid); render();
   },
   cellReset() {
     const c = sheetState.cell;
     cellResetToTemplate(S.profiles[c.pid], c.date, c.slotId);
-    sheetCell(c.date, c.slotId); render(); toast("Back to the day template");
+    sheetCell(c.date, c.slotId, c.pid); render(); toast("Back to the day template");
   },
   cellEmpty() {
     const c = sheetState.cell;
     cellClearToEmpty(S.profiles[c.pid], c.date, c.slotId);
-    sheetCell(c.date, c.slotId); render(); toast("Cleared for this week");
+    sheetCell(c.date, c.slotId, c.pid); render(); toast("Cleared for this week");
+  },
+  /* LL-619: the same add flow the week grid uses, opened from a Today meal and
+     pointed at today and the active profile. It writes to the PLAN, so what you
+     put on Today is what the week grid and the grocery list see. */
+  slotPlanAdd() {
+    sheetCellAdd({ date: UI.date, slotId: sheetState.slotId, pid: profile().id, origin: "today" }, null);
   },
 
   logSlot(t) {
@@ -4290,9 +4504,13 @@ const ACTS = {
     closeSheet(); render(); toast(n ? name + " logged" : "Nothing to log");
   },
   unlog(t) {
-    const arr = logsFor(profile().id, UI.date);
+    const p = profile(), arr = logsFor(p.id, UI.date);
     const i = arr.findIndex(e => e.id === t.dataset.id);
-    if (i >= 0) arr.splice(i, 1);
+    if (i >= 0) {
+      const e = arr[i];
+      arr.splice(i, 1);
+      removePlannedFromLog(p, UI.date, e.slotId, e.id);     // LL-619
+    }
     save(); closeSheet(); render();
   },
 
@@ -4305,9 +4523,12 @@ const ACTS = {
   pkLog() {
     const pk = sheetState.pick;
     const slotId = el("pkSlot").value;
+    const box = el("pkPlan");
+    const alsoPlan = !box || !!box.checked;
     const it = pk.byServing ? { source: pk.src, refId: pk.id, servings: pk.amount } : { source: pk.src, refId: pk.id, grams: pk.amount };
-    const n = logItems(slotId, [it], pk.estimated ? "estimate" : "search");
-    closeSheet(); UI.tab = "today"; render(); toast(n ? "Logged" : "Could not log that");
+    const n = logItems(slotId, [it], pk.estimated ? "estimate" : "search", alsoPlan);
+    closeSheet(); UI.tab = "today"; render();
+    toast(n ? (alsoPlan ? "Logged and added to the plan" : "Logged") : "Could not log that");
   },
   fav(t) {
     const p = profile(); const id = t.dataset.id;
@@ -4389,12 +4610,8 @@ const ACTS = {
     const payload = what === "recipes"
       ? { leanline: "recipes", schemaVersion: S.schemaVersion, exportedAt: new Date().toISOString(), recipes: S.recipes, foods: S.foods }
       : Object.assign({ leanline: "full", exportedAt: new Date().toISOString() }, S);
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = "leanline-" + what + "-" + isoDate() + ".json";
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    downloadFile("leanline-" + what + "-" + isoDate() + ".json",
+      JSON.stringify(payload, null, 2), "application/json");
     UI.exportOffer = false; UI.exportDone = true;
     render();
     toast("Exported");
