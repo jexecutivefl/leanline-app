@@ -414,6 +414,11 @@ function migrate(st) {
   // v1 → v1: fill any key added after a user's save so old logs never break.
   const seed = seedState();
   for (const k of Object.keys(seed)) if (st[k] === undefined) st[k] = seed[k];
+  /* LL-624: and INSIDE settings, which the loop above cannot reach because
+     st.settings already exists. A key added after a user's save came back
+     undefined, and render() writes it straight into a CSS variable —
+     `--scale: undefined` breaks every font size in the app at once. */
+  for (const k of Object.keys(seed.settings)) if (st.settings[k] === undefined) st.settings[k] = seed.settings[k];
   for (const pid of Object.keys(st.training || {})) {
     const tr = st.training[pid];
     tr.program = tr.program || [];
@@ -428,9 +433,27 @@ function migrate(st) {
     if (p.isMinor && p.schoolSC === undefined) p.schoolSC = { asked: false, exists: false, recordedOn: null, source: null };
   }
   for (const f of Object.values(st.foods || {})) if (f.per100g && f.per100g.fiber === undefined) f.per100g.fiber = null;
+  backfillLibrary(st);                              // LL-623: new library items reach a device that already has data
   applyShopping(st.foods || {});                    // LL-202: aisle + purchase units on an old export
   migratePlans(st);
   for (const r of Object.values(st.recipes || {})) computeRecipe(r, st);
+  return st;
+}
+
+/* LL-623. seedFoods() and seedRecipes() only run on a FIRST boot, so a food
+   added to the library after the adult installed the app would never reach his
+   phone — his state already exists and migrate() used to leave it alone. This
+   adds anything missing BY ID. It never overwrites a record he has edited and
+   never removes one, which is the same rule the rest of this file follows:
+   nothing in LEANLINE is deleted. A user who edits f_tuna to match his own can
+   keeps his edit; a user who has never seen f_tuna gets it. */
+function backfillLibrary(st) {
+  if (!st.foods) st.foods = {};
+  if (!st.recipes) st.recipes = {};
+  const foods = seedFoods();
+  for (const id of Object.keys(foods)) if (!st.foods[id]) st.foods[id] = JSON.parse(JSON.stringify(foods[id]));
+  const recipes = seedRecipes();
+  for (const id of Object.keys(recipes)) if (!st.recipes[id]) st.recipes[id] = JSON.parse(JSON.stringify(recipes[id]));
   return st;
 }
 
@@ -506,6 +529,10 @@ const SHOP = {
   f_mozz: { aisle: "Dairy" },
   f_parm: { aisle: "Dairy" },
   f_string: { aisle: "Dairy", countUnit: { grams: 28, one: "stick", many: "sticks" } },
+  f_celery: { aisle: "Produce", countUnit: { grams: 40, one: "medium stalk", many: "medium stalks" }, perishDays: 14 },
+  f_pbnat: { aisle: "Dry & Canned" },
+  f_tuna: { aisle: "Dry & Canned" },
+  f_mashpot: { aisle: "Dairy", perishDays: 7, perishNote: "refrigerated tub — check the date on the lid. A dry box keeps for months and belongs in Dry & Canned instead" },
   f_pepper: { aisle: "Produce" }, f_onion: { aisle: "Produce" },
   f_broccoli: { aisle: "Produce", perishDays: 5, perishNote: "frozen florets remove the window entirely" },
   f_greenbean: { aisle: "Produce", perishDays: 5, perishNote: "frozen removes the window entirely" },
@@ -582,7 +609,31 @@ function seedFoods() {
     F("f_cb10", "Mission Carb Balance Burrito 10\", flour", 157.1, 14.3, 45.7, 8.6, 40.0, "verified", LBL + ". Label: 110 kcal / 10 P / 32 C / 28 fiber / 6 F per 70 g tortilla.", { noAtwater: true, portionHints: [{ label: "1 tortilla", grams: 70 }] }),
     F("f_cb10ww", "Mission Carb Balance Burrito 10\", whole wheat", 154.9, 11.3, 46.5, 8.5, 42.3, "verified", LBL + ". Label: 110 kcal / 8 P / 33 C / 30 fiber / 6 F per 71 g tortilla.", { noAtwater: true, portionHints: [{ label: "1 tortilla", grams: 71 }] }),
     F("f_cb6", "Mission Carb Balance Fajita 6\", flour", 160.7, 14.3, 42.9, 7.1, 35.7, "verified", LBL + ". Label: 45 kcal / 4 P / 12 C / 9–11 fiber / 2 F per 28 g tortilla.", { noAtwater: true, portionHints: [{ label: "1 tortilla", grams: 28 }] }),
-    F("f_creatine", "Creatine monohydrate", 0, 0, 0, 0, 0, "unknown", "Brand and label not recorded — see 02_RECIPE_BANK.md missing data", { portionHints: [{ label: "daily dose", grams: 10 }] })
+    F("f_creatine", "Creatine monohydrate", 0, 0, 0, 0, 0, "unknown", "Brand and label not recorded — see 02_RECIPE_BANK.md missing data", { portionHints: [{ label: "daily dose", grams: 10 }] }),
+
+    /* ---- LL-623, added 2026-08-23 on the adult's word that these are in the house.
+       Pulled live from the USDA FoodData Central API that day (api.nal.usda.gov
+       /fdc/v1), not from memory, and each id is quoted with the macros it
+       returned so the match can be re-checked. Three of the four are ESTIMATED
+       and it is worth being exact about why: the USDA data behind them is solid,
+       but WHICH product is in the adult's cupboard is not known. That is precisely
+       what this app's "estimated" state is for. Each names the alternative it
+       could be, with that record's id, so swapping to the label is a two-minute
+       edit and not a research job. */
+    F("f_celery", "Celery, raw", 14, 0.69, 2.97, 0.17, 1.6, "verified",
+      srl(169988, "Celery, raw", "14 kcal, 0.69 P, 2.97 C, 0.17 F, 1.6 fiber — every figure here is that record verbatim"),
+      { portionHints: [{ label: "1 medium stalk", grams: 40 }, { label: "1 cup chopped", grams: 101 }] }),
+    F("f_pbnat", "Peanut butter, natural", 598, 22.2, 22.3, 51.4, 5.0, "estimated",
+      BRAND + ". Closest USDA analog is " + srl(172470, "Peanut butter, smooth style, without salt", "598 kcal, 22.21 P, 22.31 C, 51.36 F, 5.0 fiber") +
+      " — natural peanut butter is peanuts and salt, and salt carries no macros, so the unsalted record is the right analog. A jar with palm oil or added sugar will not match. Replace with the label on the adult's jar and set this to verified.",
+      { dense: true }),
+    F("f_tuna", "Tuna, canned in water, drained", 116, 25.5, 0, 0.8, 0, "estimated",
+      BRAND + " (Sam's Club). Carried at USDA " + srl(171986, "Fish, tuna, light, canned in water, without salt, drained solids", "116 kcal, 25.5 P, 0 C, 0.82 F") +
+      ". IF THE CAN SAYS SOLID WHITE ALBACORE this is the wrong record: SR Legacy 171988 'Fish, tuna, white, canned in water, without salt, drained solids' is 128 kcal, 23.6 P, 2.97 F. Chunk light is the commoner bulk pack, which is why it is the default, but the can settles it.",
+      { aisle: "Dry & Canned" }),
+    F("f_mashpot", "Mashed potatoes, prepared", 106, 1.97, 13.3, 5.01, 1.9, "estimated",
+      BRAND + ". Carried at USDA " + srl(169768, "Potatoes, mashed, ready-to-eat", "106 kcal, 1.97 P, 13.3 C, 5.01 F, 1.9 fiber") +
+      ", which is the refrigerated prepared tub. Mashed potato is whatever went into it: home-made with milk and butter is SR Legacy 168555 at 113 kcal and 4.22 F, with milk alone 170493 at 83 kcal and 0.57 F, and dry flakes before preparing are 170445 at 354 kcal. If it is a box, weigh the DRY flakes and use that record instead.")
   ];
   const out = {};
   list.forEach(f => out[f.id] = f);
@@ -934,6 +985,463 @@ function cellClearToEmpty(p, dateStr, slotId) {
   arr.push({ slotId, source: "empty", refId: null, grams: null });
   save();
 }
+
+/* ---- fill a week automatically (LL-622) ---------------------
+   the adult asked for a week's plan to be generated. The hard part is not the
+   filling, it is doing it without breaking the first rule of this project:
+   NOTHING HERE INVENTS A NUMBER. Every row the generator produces points at a
+   recipe or a food that already exists, with its own sourced macros, and the
+   only figure the generator itself produces is HOW MUCH — which is a division,
+   shown on screen, and rounded to something a person can actually serve.
+
+   IT ALSO INVENTS NOTHING ABOUT TASTE. The pool is what this profile already
+   eats: the recipe bank, plus their starred favourites, plus what they have
+   actually logged. A brand-new profile with no history gets the recipes and is
+   TOLD to star some favourites for more variety, rather than being served a
+   week of whatever a stranger imagines a snack is.
+
+   NOTHING IS WRITTEN UNTIL IT HAS BEEN SEEN. generateWeek() returns a plan and
+   a per-day preview against target; applyGeneratedWeek() is a separate call,
+   snapshots for undo, and touches plans only — never a logged entry.
+   ------------------------------------------------------------ */
+function sortedSlots(p, dateStr) {
+  return p.slots.slice().sort((a, b) => {
+    const ta = slotTime(a, dateStr), tb = slotTime(b, dateStr);
+    if (!ta && !tb) return 0; if (!ta) return 1; if (!tb) return -1;
+    return ta < tb ? -1 : 1;
+  });
+}
+/* What this person actually eats. Recipes first — they are the meals — then the
+   foods they have starred or logged. Order is stable so a preview reproduces. */
+function genPool(p) {
+  const recipes = Object.values(S.recipes)
+    .filter(r => !r.retired && (r.computed || computeRecipe(r).computed))
+    .filter(r => (r.computed.perServing && r.computed.perServing.kcal > 0) ||
+                 (r.computed.per100g && r.computed.per100g.kcal > 0))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(r => ({ kind: "recipe", id: r.id, name: r.name }));
+  const ids = [];
+  for (const id of (S.favorites[p.id] || [])) if (S.foods[id] && ids.indexOf(id) < 0) ids.push(id);
+  for (const k of recentFoodIds(p.id)) {
+    const i = k.indexOf(":"), src = k.slice(0, i), id = k.slice(i + 1);
+    if (src === "food" && S.foods[id] && ids.indexOf(id) < 0) ids.push(id);
+  }
+  /* and the staples already sitting in this person's own day templates — the
+     rice, the tortillas, the milk. Same principle as favourites: it is food
+     they have already decided they eat, not food this code picked for them.
+     Without it the pool is protein-heavy recipes and nothing to balance them
+     against, and no amount of clever selection can fix a pool with no carbs. */
+  for (const key of ["A", "B"]) {
+    const tpl = (p.dayTemplates || {})[key] || {};
+    for (const slotId of Object.keys(tpl))
+      for (const it of (tpl[slotId] || []))
+        if (it.source === "food" && S.foods[it.refId] && ids.indexOf(it.refId) < 0) ids.push(it.refId);
+  }
+  const foods = ids.filter(id => S.foods[id].per100g.kcal > 0)
+    .map(id => ({ kind: "food", id, name: S.foods[id].name }));
+  return { recipes, foods };
+}
+/* kcal each slot is aiming at. A slot with its own targetKcal keeps it; what is
+   left of the day's target is split evenly across the rest. */
+function slotBudgets(p, dateStr) {
+  const slots = sortedSlots(p, dateStr);
+  const named = slots.reduce((a, s) => a + (s.targetKcal > 0 ? s.targetKcal : 0), 0);
+  const open = slots.filter(s => !(s.targetKcal > 0)).length;
+  const rest = Math.max(0, (p.targets.kcal || 0) - named);
+  const each = open ? rest / open : 0;
+  return slots.map(s => ({ slot: s, kcal: s.targetKcal > 0 ? s.targetKcal : each }));
+}
+/* HOW MUCH OF ONE THING IS A PORTION. Solving on calories alone is arithmetically
+   correct and practically useless: the first working version planned 100 g of
+   honey as a dinner and 395 g of cottage cheese as a pre-training meal. Both hit
+   their calorie budget exactly. Neither is a thing a person eats.
+
+   The cap comes from data the app already holds wherever possible — a food's own
+   portionHints are a RECORDED serving (1 medium apple 182 g, 1 tortilla 62 g,
+   1 stick 28 g), so three of those is a generous but real plate. Where there is
+   no recorded portion the cap is a stated planning limit, not a claim about the
+   food: 250 g of an ordinary food, 50 g of a dense one, 2 servings of a recipe.
+   It is a constraint on the plan, and it is said out loud on the sheet.
+
+   DENSE FOODS ARE NEVER A MEAL. `dense` already marks the oils, syrups, sour
+   cream and hard cheeses — the things that go ON something. They are allowed
+   alongside a main and never as the main, which is what stopped honey being
+   dinner. */
+const GEN_CAP_PLAIN_G = 250, GEN_CAP_DENSE_G = 50, GEN_CAP_SERVINGS = 2, GEN_CAP_HINTS = 3;
+function genPortionCap(pick) {
+  if (pick.kind === "recipe") return { servings: GEN_CAP_SERVINGS };
+  const f = S.foods[pick.id];
+  if (!f) return { grams: GEN_CAP_PLAIN_G };
+  const hints = (f.portionHints || []).map(x => x.grams).filter(g => g > 0);
+  if (hints.length) {
+    const biggest = Math.max.apply(null, hints);
+    return { grams: biggest * (f.dense ? 1 : GEN_CAP_HINTS), fromHint: true };
+  }
+  return { grams: f.dense ? GEN_CAP_DENSE_G : GEN_CAP_PLAIN_G };
+}
+function genIsDense(pick) { return pick.kind === "food" && !!(S.foods[pick.id] || {}).dense; }
+
+/* The amount that lands on a kcal budget. This division IS the whole of what
+   the generator computes, and it is rounded to a quarter serving or 5 g so the
+   plan asks for something a person can serve. */
+function genAmountFor(pick, kcalBudget) {
+  if (!(kcalBudget > 0)) return null;
+  const cap = genPortionCap(pick);
+  if (pick.kind === "recipe") {
+    const r = S.recipes[pick.id]; if (!r) return null;
+    const c = r.computed || computeRecipe(r).computed;
+    if (c.perServing && c.perServing.kcal > 0) {
+      let n = Math.max(0.25, Math.round(kcalBudget / c.perServing.kcal * 4) / 4);
+      if (cap.servings) n = Math.min(n, cap.servings);
+      return { source: "recipe", refId: pick.id, grams: null, servings: n };
+    }
+    if (c.per100g && c.per100g.kcal > 0) {
+      let g = Math.max(5, Math.round(kcalBudget / c.per100g.kcal * 100 / 5) * 5);
+      const gcap = cap.servings ? cap.servings * (c.cookedG / (r.servings || 1)) : GEN_CAP_PLAIN_G;
+      if (gcap > 0) g = Math.min(g, Math.max(5, Math.round(gcap / 5) * 5));
+      return { source: "recipe", refId: pick.id, grams: g };
+    }
+    return null;
+  }
+  const f = S.foods[pick.id];
+  if (!f || !(f.per100g.kcal > 0)) return null;
+  let g = Math.max(5, Math.round(kcalBudget / f.per100g.kcal * 100 / 5) * 5);
+  if (cap.grams > 0) g = Math.min(g, Math.max(5, Math.round(cap.grams / 5) * 5));
+  return { source: "food", refId: pick.id, grams: g };
+}
+/* Panel §8: the freezes flag is real. A batch that cannot be frozen has to be
+   eaten inside holdsDays, so the generator will not spread one wider than that.
+   It picks the next candidate instead rather than quietly planning a meal that
+   would have gone off. */
+function genRecipeFitsDay(pick, dateStr, firstSeen) {
+  if (pick.kind !== "recipe") return true;
+  const r = S.recipes[pick.id];
+  if (!r || r.freezes !== false || r.holdsDays == null) return true;
+  const first = firstSeen[pick.id];
+  if (!first) return true;
+  return Math.round((parseISO(dateStr) - parseISO(first)) / 86400000) <= r.holdsDays;
+}
+/* What a short day gets topped up with: whatever in the pool best matches the
+   macros the day is still missing. It used to be "the most protein per calorie",
+   which is right only when protein is what is short — on a day already 100 g
+   over on protein it made things worse. Never a new food, always one already in
+   the pool, and never a dense one, which is not a thing to eat more of. */
+function genTopUpPick(pool, want, usedToday, dateStr, firstSeen) {
+  let best = null, bestScore = Infinity;
+  for (const pick of pool.recipes.concat(pool.foods)) {
+    if (genIsDense(pick)) continue;
+    /* HARD exclusion, not a penalty. A penalty still chose the tortilla that was
+       already in Meal 1 and put a second 185 g of it in the same slot. */
+    if (usedToday && usedToday[pick.kind + ":" + pick.id]) continue;
+    /* the holding window applies here too. It was checked when filling slots but
+       NOT when topping up, so a stir-fry that holds three days was being spread
+       across six by the closing pass — the smoke test caught it. */
+    if (dateStr && !genRecipeFitsDay(pick, dateStr, firstSeen || {})) continue;
+    const score = genFitScore(pick, want);
+    if (score < bestScore) { bestScore = score; best = pick; }
+  }
+  return best;
+}
+/* Last resort for a MINOR only, when the pool is exhausted and the day is still
+   under target: grow a portion already on the plate toward its own cap. Growing
+   a serving is honest — it is more of a meal they are already having — where a
+   duplicate row is not. Returns the kcal it managed to add. */
+function genGrowExisting(placed, gapKcal, want) {
+  const order = placed.slice().sort((a, b) => {
+    const pa = { kind: a.item.source === "recipe" ? "recipe" : "food", id: a.item.refId };
+    const pb = { kind: b.item.source === "recipe" ? "recipe" : "food", id: b.item.refId };
+    return genFitScore(pa, want) - genFitScore(pb, want);
+  });
+  for (const row of order) {
+    const pick = { kind: row.item.source === "recipe" ? "recipe" : "food", id: row.item.refId };
+    if (genIsDense(pick)) continue;
+    const cap = genPortionCap(pick);
+    const before = resolveItem(row.item);
+    if (!before || !(before.macros.kcal > 0)) continue;
+    if (row.item.servings != null) {
+      const room = (cap.servings || 0) - row.item.servings;
+      if (!(room >= 0.25)) continue;
+      const add = Math.min(room, Math.max(0.25, Math.round(gapKcal / (before.macros.kcal / row.item.servings) * 4) / 4));
+      row.item.servings = Math.round((row.item.servings + add) * 4) / 4;
+    } else {
+      const room = (cap.grams || 0) - row.item.grams;
+      if (!(room >= 5)) continue;
+      const per100 = before.macros.kcal / (row.item.grams / 100);
+      const add = Math.min(room, Math.max(5, Math.round(gapKcal / per100 * 100 / 5) * 5));
+      row.item.grams = row.item.grams + add;
+    }
+    const after = resolveItem(row.item);
+    return after ? after.macros.kcal - before.macros.kcal : 0;
+  }
+  return 0;
+}
+
+/* The macros of one unit of a pool item — 100 g of a food, one serving of a
+   recipe. Selection compares RATIOS, so which unit it is does not matter. */
+function genPerUnit(pick) {
+  if (pick.kind === "food") {
+    const f = S.foods[pick.id];
+    return f ? { kcal: f.per100g.kcal, p: f.per100g.p, c: f.per100g.c, f: f.per100g.f } : null;
+  }
+  const r = S.recipes[pick.id]; if (!r) return null;
+  const c = r.computed || computeRecipe(r).computed;
+  return c.perServing && c.perServing.kcal > 0 ? c.perServing : (c.per100g && c.per100g.kcal > 0 ? c.per100g : null);
+}
+/* How badly a candidate fits what is LEFT of the day, in kcal of macro error
+   per kcal eaten. Grams of error are multiplied back by their Atwater factors
+   so protein, carb and fat error are commensurate rather than three numbers
+   with different meanings being added together.
+
+   This is the whole reason the generator is not just "divide the target by the
+   number of meals". Filling on calories alone produced a week that hit 2,350
+   kcal and 275 g of protein against a 200 g target — and for the minor, 410 g
+   against 140. Calories were right and the plan was wrong. */
+function genFitScore(pick, want) {
+  const per = genPerUnit(pick);
+  if (!per || !(per.kcal > 0)) return Infinity;
+  if (!(want.kcal > 0)) return 0;
+  const wp = Math.max(0, want.p) / want.kcal, wc = Math.max(0, want.c) / want.kcal, wf = Math.max(0, want.f) / want.kcal;
+  return Math.abs(per.p / per.kcal - wp) * 4 +
+         Math.abs(per.c / per.kcal - wc) * 4 +
+         Math.abs(per.f / per.kcal - wf) * 9;
+}
+
+function generateWeek(p, weekId, opts) {
+  opts = opts || {};
+  const onlyEmpty = opts.onlyEmpty !== false;
+  const dates = weekDates(weekId);
+  const pool = genPool(p);
+  if (!pool.recipes.length && !pool.foods.length) {
+    return { ok: false, why: "There is nothing to build a week out of yet. Add a recipe on the Food tab, or star a few foods as favourites, and this can fill the week from them." };
+  }
+  const tg = p.targets;
+  const firstSeen = {};                       // recipeId -> first date it was placed
+  const useCount = {};                        // how often the week has leaned on each item
+  const rows = [], days = [];
+  let rotation = 0, skipped = 0;
+
+  for (let di = 0; di < dates.length; di++) {
+    const d = dates[di];
+    const budgets = slotBudgets(p, d);
+    /* The biggest slots are MEALS: a main plus something alongside it, which is
+       both how people eat and the only way the fit can work. One item per slot
+       cannot hit a macro ratio unless the pool happens to contain something at
+       that exact ratio — a chicken recipe alone lands 3x over on protein no
+       matter how the amount is scaled. Splitting the slot 60/40 gives the
+       selection a second degree of freedom, and the second piece is chosen
+       against what the first one left. */
+    const order = budgets.map((b, i) => i).sort((a, b) => budgets[b].kcal - budgets[a].kcal);
+    const isBig = {};
+    order.forEach((idx, rank) => { isBig[idx] = rank < Math.max(1, Math.ceil(budgets.length / 2)); });
+
+    const usedToday = {};
+    const placed = [];
+    /* what the WHOLE day still needs, drained as each slot is filled. Selection
+       matches against this, so a day that has already taken its protein starts
+       preferring carbs on its own. */
+    const want = { kcal: tg.kcal || 0, p: tg.protein || 0, c: tg.carbs || 0, f: tg.fat || 0 };
+    for (let si = 0; si < budgets.length; si++) {
+      const b = budgets[si];
+      if (!(b.kcal > 0)) continue;
+      if (onlyEmpty && plannedItems(p, d, b.slot.id).length) { skipped++; continue; }
+      const all = pool.recipes.concat(pool.foods);
+      const twoPiece = isBig[si] && pool.recipes.length > 0 && pool.foods.length > 0;
+      let left = b.kcal;
+      for (let piece = 0; piece < (twoPiece ? 2 : 1); piece++) {
+        /* HOW BIG THE MAIN IS, is itself a calculation. A fixed 60/40 split
+           still lands 80% over on protein when the main is three times as
+           protein-dense as the day wants — which is exactly what a chicken
+           recipe is against a 15-year-old's 140 g target. So the main gets the
+           share its own density earns: the day wants 0.038 g of protein per
+           kcal, the recipe carries 0.10, so the recipe takes 38% of the slot
+           and what goes alongside it takes the rest. Bounded at 25% and 80% so
+           a meal never becomes a garnish or swallows the plate. */
+        let share = left;
+        if (twoPiece && piece === 0) share = left * 0.6;
+        if (!(share > 0)) continue;
+        const leads = !twoPiece || piece === 0;      // is this the meal, or what goes with it
+        let pick = null, best = Infinity;
+        for (const cand of all) {
+          if (usedToday[cand.kind + ":" + cand.id]) continue;
+          if (leads && genIsDense(cand)) continue;    // oil, honey, syrup, hard cheese: never the meal
+          if (!genRecipeFitsDay(cand, d, firstSeen)) continue;
+          /* a light nudge away from whatever the week has leaned on already, so
+             seven days do not come out identical. Small enough that it never
+             beats a genuinely better macro fit. A recipe is PREFERRED as the
+             main of a big slot, but only preferred — the fit still decides. */
+          const seen = (useCount[cand.kind + ":" + cand.id] || 0);
+          let score = genFitScore(cand, want) * (1 + 0.12 * seen);
+          if (twoPiece && piece === 0) score *= (cand.kind === "recipe" ? 0.8 : 1.25);
+          if (score < best) { best = score; pick = cand; }
+        }
+        if (!pick) {
+          /* Every candidate is already on today's plate — a seven-meal day will
+             exhaust a small pool before it is full. Repeat something rather than
+             leave a slot empty, but repeat the thing that FITS: falling back to
+             a blind rotation put a second 185 g of tortilla on the same day as
+             the first while better options sat unused. */
+          for (const cand of all) {
+            if (leads && genIsDense(cand)) continue;
+            if (!genRecipeFitsDay(cand, d, firstSeen)) continue;
+            const score = genFitScore(cand, want) * (1 + 0.12 * (useCount[cand.kind + ":" + cand.id] || 0));
+            if (score < best) { best = score; pick = cand; }
+          }
+        }
+        if (!pick) continue;
+        if (twoPiece && piece === 0) {
+          const per = genPerUnit(pick);
+          const wantRatio = want.kcal > 0 ? Math.max(0, want.p) / want.kcal : 0;
+          const haveRatio = per && per.kcal > 0 ? per.p / per.kcal : 0;
+          const earned = haveRatio > 0 && wantRatio > 0 ? wantRatio / haveRatio : 0.6;
+          share = left * Math.min(0.8, Math.max(0.25, earned));
+        }
+        rotation++;
+        const item = genAmountFor(pick, share);
+        if (!item) continue;
+        /* a capped portion cannot reach its share, so what it did not take rolls
+           on to the next piece rather than quietly vanishing out of the day */
+        const took = resolveItem(item);
+        left -= took ? Math.min(share, took.macros.kcal) : share;
+        const got = resolveItem(item);
+        if (got) { want.kcal -= got.macros.kcal; want.p -= got.macros.p; want.c -= got.macros.c; want.f -= got.macros.f; }
+        usedToday[pick.kind + ":" + pick.id] = true;
+        useCount[pick.kind + ":" + pick.id] = (useCount[pick.kind + ":" + pick.id] || 0) + 1;
+        if (pick.kind === "recipe" && !firstSeen[pick.id]) firstSeen[pick.id] = d;
+        const row = { date: d, slotId: b.slot.id, slotName: b.slot.name, item, name: pick.name, budget: share };
+        rows.push(row); placed.push(row);
+      }
+    }
+
+    /* --- close the day ---
+       Whatever the slots left on the table, filled with whatever best matches
+       the macros still missing, one portion at a time and never more than three
+       extra rows. Bounded because a loop that keeps adding until the numbers are
+       perfect will happily plan eleven things nobody is going to eat.
+
+       A MINOR IS NEVER LEFT SHORT. Spec §5 and Panel §2: a minor's profile
+       cannot enter a deficit, and a generator that under-fills the day is a
+       deficit however it got there — so for a minor the day closes on kcal even
+       if the macro split has to give. */
+    if (placed.length) {
+      const dayTotal = () => {
+        const t = ZERO();
+        for (const r of placed) { const rr = resolveItem(r.item); if (rr) addTo(t, rr.macros); }
+        return t;
+      };
+      /* Spread the extras rather than stacking them on whatever slot happened to
+         be last. Three top-ups all landing on "Before bed" is 846 kcal at
+         bedtime, which is not what anyone meant by filling the week. */
+      const roomy = placed.slice().sort((a, b) => b.budget - a.budget);
+      const host = i => roomy.length ? roomy[i % roomy.length] : placed[placed.length - 1];
+      for (let pass = 0; pass < 8; pass++) {
+        const t = dayTotal();
+        const kcalBefore = t.kcal;
+        const gapK = (tg.kcal || 0) - t.kcal;
+        const gapP = (tg.protein || 0) - t.p;
+        /* A MINOR'S DAY REACHES TARGET. Not "close to target" — spec §5 and
+           Panel §2 say the profile cannot enter a deficit, and a tolerance band
+           is a deficit with a nicer name. An earlier version allowed 1.5% and
+           produced three days a few calories under target; the smoke
+           test for this catches exactly that. What the tolerance was trying to
+           fix is fixed below instead, by GROWING a portion rather than adding
+           another protein source. */
+        /* CALORIES ARE THE STOP CONDITION, for everyone. Topping up because
+           protein was short while calories were already on target is how a
+           Sunday ended up 184 kcal over having added a Carb Balance tortilla
+           and then an apple — the second of which carries no protein at all.
+           A protein gap the pool cannot close is reported in the warnings
+           instead of eaten around. */
+        const worthIt = p.isMinor ? gapK > 0 : gapK > (tg.kcal || 0) * 0.04;
+        if (!worthIt) break;
+        const need = { kcal: Math.max(gapK, 0), p: Math.max(gapP, 0),
+                       c: Math.max((tg.carbs || 0) - t.c, 0), f: Math.max((tg.fat || 0) - t.f, 0) };
+        if (!(need.kcal > 0)) need.kcal = Math.max(gapP, 0) * 4;
+        /* Already past the protein target? Then MORE of something on the plate
+           beats a new row: adding is how the day gets another protein source it
+           did not need, growing is just a bigger helping of the carbs it did. */
+        if (gapK > 0 && t.p > (tg.protein || 0) * 1.05 && genGrowExisting(placed, gapK, need) > 0) continue;
+        const pick = genTopUpPick(pool, need, usedToday, d, firstSeen);
+        if (!pick) {
+          if (gapK > 0 && genGrowExisting(placed, gapK, need) > 0) continue;
+          break;
+        }
+        const item = genAmountFor(pick, need.kcal);
+        if (!item) break;
+        const got = resolveItem(item);
+        if (!got || !(got.macros.kcal > 0)) break;
+        /* The smallest portion of the best-fitting thing can still be far bigger
+           than the hole it is filling — a quarter serving is a quarter serving.
+           Adding it anyway put a Sunday 184 kcal over target. An adult simply
+           does not get that row; the day is a little under and that is the
+           better answer. A MINOR does get it, because for a minor "a little
+           under" is a deficit and overshooting is the safe direction. */
+        if (!p.isMinor && got.macros.kcal > need.kcal * 1.6) break;
+        usedToday[pick.kind + ":" + pick.id] = true;
+        useCount[pick.kind + ":" + pick.id] = (useCount[pick.kind + ":" + pick.id] || 0) + 1;
+        if (pick.kind === "recipe" && !firstSeen[pick.id]) firstSeen[pick.id] = d;
+        const at = host(pass);
+        const row = { date: d, slotId: at.slotId, slotName: at.slotName, item,
+                      name: pick.name, budget: 0, topUp: true };
+        rows.push(row); placed.push(row);
+        /* nothing moved: the pool is exhausted and every portion is at its cap.
+           Stop rather than spin — the preview will show the day short and say so. */
+        if (dayTotal().kcal <= kcalBefore + 0.5) break;
+      }
+    }
+
+    const t = ZERO(); const confs = []; let fiberComplete = true;
+    for (const r of placed) {
+      const rr = resolveItem(r.item);
+      if (!rr) continue;
+      addTo(t, rr.macros); confs.push(rr.confidence);
+      if (!rr.fiberKnown) fiberComplete = false;
+    }
+    days.push({ date: d, n: placed.length, t, fiberComplete,
+                confidence: confs.length ? weakest(confs) : "verified" });
+  }
+
+  /* NAME WHAT IT COULD NOT DO. A generator that hits calories and misses protein
+     by 80% and says nothing is worse than one that refuses. This is a pool
+     limitation, not an arithmetic one — a bank of chicken-based recipes cannot be
+     arranged into a low-protein day at a high calorie target, however the
+     amounts are scaled — and the fix is a wider pool, so that is what it says. */
+  const warnings = [];
+  const MACROS = [["p", "protein", tg.protein], ["c", "carbs", tg.carbs], ["f", "fat", tg.fat]];
+  const filled = days.filter(x => x.n);
+  for (const [k, label, target] of MACROS) {
+    if (!(target > 0) || !filled.length) continue;
+    const avg = filled.reduce((a, x) => a + x.t[k], 0) / filled.length;
+    const off = (avg - target) / target;
+    if (Math.abs(off) > 0.25) warnings.push(
+      "It lands about " + Math.round(Math.abs(off) * 100) + "% " + (off > 0 ? "over" : "under") +
+      " on " + label + " — around " + R(avg) + " g a day against a target of " + num(target) + " g. " +
+      "That is what your recipes and favourites add up to, not something the plan can scale away. " +
+      "Adding " + (off > 0 ? "a lower-" + label : "a higher-" + label) + " food to your favourites and running it again is what moves it.");
+  }
+  const minorShort = p.isMinor ? filled.filter(x => x.t.kcal < (tg.kcal || 0) - 0.5).length : 0;
+  if (minorShort) warnings.push(
+    minorShort + " day" + (minorShort === 1 ? "" : "s") + " came out UNDER " + esc(p.name) + "'s calorie target and this profile is not allowed a deficit. " +
+    "The pool ran out of things to add. Star a few more foods as favourites and run it again.");
+
+  return { ok: true, rows, days, skipped, warnings, minorShort,
+           poolSize: pool.recipes.length + pool.foods.length,
+           thin: pool.recipes.length + pool.foods.length < 3 };
+}
+
+/* Writes what the preview showed, and nothing else. Plans only — a logged entry
+   is never touched, same as copy day and copy week. */
+function applyGeneratedWeek(p, weekId, rows) {
+  snapshotPlans("Auto-fill of " + weekLabel(weekId) + " for " + p.name);
+  const cleared = {};
+  for (const row of rows) {
+    const key = row.date + "|" + row.slotId;
+    if (!cleared[key]) { cellClearToEmpty(p, row.date, row.slotId); cleared[key] = true; }
+    cellAdd(p, row.date, row.slotId, Object.assign({}, row.item));
+  }
+  save();
+  return rows.length;
+}
+
 /* Text marks, never colour alone — Panel §10. */
 const CONF_MARK = { verified: "", estimated: "~", unknown: "?" };
 
@@ -1510,6 +2018,7 @@ let S = null;
 const UI = {
   tab: "today", foodTab: "log", date: isoDate(), search: "", estimate: false, animated: false,
   weekStart: null, planPid: null, planScrollL: 0, planScrollT: 0, cellQ: "", undo: null,
+  genOnlyEmpty: true,
   distress: false, onb: null,
   /* Testing FIX 9b. Session-only on purpose: it is never written to storage,
      so it cannot follow anyone across days and become a nag. */
@@ -1822,6 +2331,9 @@ function viewOnboarding() {
         'Targets stay marked provisional until an adult confirms a clinician has signed them off. ' +
         'None of this can be switched off later.</div>';
     }
+    h += '<div class="rule"></div><div class="eyebrow">Text size</div>' +
+      '<p class="muted" style="font-size:.8125rem;margin:.25rem 0 .5rem">Set it now if the type is small. Each option is shown at the size it sets, and it is in Settings afterwards.</p>' +
+      '<div class="wrap">' + scaleChips() + '</div>';
     h += onbNav("Next ›");
   }
 
@@ -1971,10 +2483,9 @@ function viewSettings() {
 
   /* preferences */
   h += '<div class="card"><div class="eyebrow">Display</div>' +
+    prefRow("Text size — each option is shown at the size it sets", scaleChips()) +
     prefRow("Theme", ["dark", "light"].map(v =>
       '<button class="chipbtn" data-act="setTheme" data-v="' + v + '" aria-pressed="' + (S.settings.theme === v) + '">' + v + '</button>').join("")) +
-    prefRow("Text size", [["0.95", "Small"], ["1", "Default"], ["1.15", "Large"], ["1.3", "Largest"]].map(([v, l]) =>
-      '<button class="chipbtn" data-act="scale" data-v="' + v + '" aria-pressed="' + (String(S.settings.textScale) === v) + '">' + l + '</button>').join("")) +
     prefRow("Units", [["imperial", "lb / in"], ["metric", "kg / cm"]].map(([v, l]) =>
       '<button class="chipbtn" data-act="setUnits" data-v="' + v + '" aria-pressed="' + (S.settings.units === v) + '">' + l + '</button>').join("")) +
     prefRow("Week starts", [[1, "Monday"], [0, "Sunday"]].map(([v, l]) =>
@@ -2000,6 +2511,23 @@ function viewSettings() {
     '<button class="btn" data-act="export" data-what="recipes">Export recipes</button></div>' +
     '<div style="height:.5rem"></div><button class="btn full" data-act="importSheet">Import from JSON</button></div>';
   return h;
+}
+/* LL-624. The picker existed but stopped at 1.3 and lived four cards down a
+   settings screen you have to already be able to read to find. the adult asked for
+   it, which means he never found it. Three changes: the ladder goes to 1.6, the
+   chips RENDER AT THE SIZE THEY SET so the choice is visible rather than
+   described, and the same control is offered in the wizard, before anyone has
+   had to squint at anything. */
+const TEXT_SCALES = [
+  ["0.95", "Small"], ["1", "Default"], ["1.15", "Large"],
+  ["1.3", "Larger"], ["1.45", "Huge"], ["1.6", "Biggest"]
+];
+function scaleChips() {
+  return TEXT_SCALES.map(([v, l]) =>
+    '<button class="chipbtn scalechip" data-act="scale" data-v="' + v + '"' +
+    ' style="font-size:' + (0.875 * parseFloat(v)).toFixed(3) + 'rem"' +
+    ' aria-pressed="' + (String(S.settings.textScale) === v) + '"' +
+    ' aria-label="Text size ' + l + '">' + l + '</button>').join("");
 }
 function prefRow(label, chips) {
   return '<div style="margin-top:.5rem"><div class="muted" style="font-size:.8125rem;margin-bottom:.25rem">' + esc(label) + '</div>' +
@@ -2559,7 +3087,8 @@ function viewPlan() {
   h += viewThawPanel(wid);
   h += viewBatchPanel(wid);
 
-  h += '<div class="two" style="margin-top:.7rem">' +
+  h += '<button class="btn full tall" data-act="genOpen" style="margin-top:.7rem">✦ Fill this week automatically…</button>';
+  h += '<div class="two" style="margin-top:.5rem">' +
     '<button class="btn" data-act="copyDayOpen">Copy a day…</button>' +
     '<button class="btn" data-act="copyWeekOpen">Copy week forward…</button></div>';
   h += '<button class="btn primary full tall" data-act="groceryOpen" style="margin-top:.5rem">Generate grocery list</button>';
@@ -3743,6 +4272,69 @@ function copyResultToast(r) {
     : r.copied + " item" + (r.copied === 1 ? "" : "s") + " copied to " + r.days + " day" + (r.days === 1 ? "" : "s");
 }
 
+/* ---------- auto-fill the week (LL-622) ----------
+   Two states in one sheet: the options, and the preview of what those options
+   produced. Nothing is written from the first state — "Fill the week" is only
+   offered once there is a preview on screen to have read. */
+function sheetGenerate(result) {
+  const pid = planPid(), p = S.profiles[pid], wid = UI.weekStart || weekIdOf(UI.date);
+  const onlyEmpty = UI.genOnlyEmpty !== false;
+  let h = sheetHead("Fill " + weekLabel(wid), p.name + " · built from your recipes and favourites");
+
+  h += '<div class="eyebrow">Which days</div><div class="wrap" style="margin-top:.4rem">' +
+    '<button class="chipbtn" data-act="genScope" data-v="empty" aria-pressed="' + onlyEmpty + '">Only empty slots</button>' +
+    '<button class="chipbtn" data-act="genScope" data-v="all" aria-pressed="' + (!onlyEmpty) + '">Replace the whole week</button></div>' +
+    '<p class="muted" style="font-size:.8125rem;margin:.35rem 0 0">Plans only. Nothing you have already logged is touched, and Undo is on the Plan screen afterwards.</p>';
+
+  h += '<div style="height:.6rem"></div><button class="btn full tall" data-act="genRun">' +
+    (result ? "Work it out again" : "Work out a week") + '</button>';
+
+  if (result && !result.ok) {
+    h += '<div class="safety" style="margin-top:.7rem">' + esc(result.why) + '</div>';
+    openSheet(h, { gen: null }); return;
+  }
+
+  if (result) {
+    const tg = p.targets;
+    h += '<div class="rule"></div><div class="eyebrow">What that gives ' + esc(p.name) + '</div>';
+    h += '<table class="mono-table" style="margin-top:.4rem"><thead><tr><th>Day</th><th>kcal</th><th>Protein</th></tr></thead><tbody>';
+    for (const d of result.days) {
+      h += '<tr><td>' + esc(fmtDate(d.date)) + '</td>' +
+        '<td>' + (d.n ? R(d.t.kcal) + ' <span class="fd num">' + esc(deltaText(d.t.kcal, tg.kcal)) + '</span>' : '—') + '</td>' +
+        '<td>' + (d.n ? R(d.t.p) + ' g <span class="fd num">' + esc(deltaText(d.t.p, tg.protein)) + '</span>' : '—') + '</td></tr>';
+    }
+    h += '</tbody></table>' +
+      '<p class="muted" style="font-size:.8125rem;margin:.4rem 0 0">Targets: <span class="num">' + num(tg.kcal) + '</span> kcal, <span class="num">' + tg.protein + '</span> g protein.</p>';
+
+    for (const w of (result.warnings || []))
+      h += '<div class="safety" style="margin-top:.6rem">' + esc(w) + '</div>';
+    if (result.thin) h += '<div class="safety" style="margin-top:.6rem"><b>There are only ' + result.poolSize +
+      ' things to build from</b>, so the week repeats. Star a few more foods as favourites on the Food tab, or add a recipe, and run it again.</div>';
+    if (result.skipped) h += '<p class="muted" style="font-size:.8125rem;margin:.4rem 0 0">' + result.skipped +
+      ' slot' + (result.skipped === 1 ? " was" : "s were") + ' left alone because something was already planned there.</p>';
+
+    h += '<div class="rule"></div><div class="eyebrow">Every meal it would put in</div><div style="margin-top:.4rem">';
+    let day = "";
+    for (const row of result.rows) {
+      if (row.date !== day) { day = row.date; h += '<p class="eyebrow" style="margin:.5rem 0 .2rem">' + esc(fmtDate(day)) + '</p>'; }
+      const r = resolveItem(row.item);
+      h += '<div class="item"><span class="grow"><span class="nm">' + esc(row.slotName) + ' — ' + esc(row.name) +
+        (row.topUp ? ' <span class="fd">(to reach the protein target)</span>' : '') + '</span><br>' +
+        '<span class="sub num">' + (row.item.servings != null ? R1(row.item.servings) + ' serving' + (row.item.servings === 1 ? '' : 's') : R(row.item.grams) + ' g') +
+        (r ? ' · ' + R(r.macros.kcal) + ' kcal · ' + R1(r.macros.p) + ' g P' : '') + '</span></span>' +
+        (r ? '<span class="conf ' + r.confidence + '">' + r.confidence.toUpperCase() + '</span>' : '') + '</div>';
+    }
+    h += '</div>';
+
+    h += '<div style="height:.7rem"></div><button class="btn primary full tall" data-act="genApply">Fill the week — ' +
+      result.rows.length + ' meal' + (result.rows.length === 1 ? '' : 's') + '</button>';
+  } else {
+    h += '<p class="muted" style="font-size:.875rem;margin:.7rem 0 0">It builds from the recipe bank plus anything ' + esc(p.name) +
+      ' has starred or logged before — never from something you have not eaten. Amounts are worked out from each day&rsquo;s calorie target and rounded to a quarter serving or 5 g.</p>';
+  }
+  openSheet(h, { gen: result || null });
+}
+
 /* ---------- Food ---------- */
 function viewFood(p) {
   let h = '<div class="tabs" role="tablist">' +
@@ -4288,7 +4880,10 @@ const ACTS = {
     });
     save(); closeSheet(); render();
   },
-  scale(t) { S.settings.textScale = parseFloat(t.dataset.v); save(); render(); },
+  /* render() is safe here even mid-wizard: the scale chips are buttons, so no
+     input is focused when this fires. onbSync() runs afterwards so the Next
+     button and the reason line come back in the state they were in. */
+  scale(t) { S.settings.textScale = parseFloat(t.dataset.v); save(); render(); if (UI.onb) onbSync(); },
   setTheme(t) { S.settings.theme = t.dataset.v; save(); render(); },
   setUnits(t) { S.settings.units = t.dataset.v; save(); render(); },
   setWeekStart(t) { S.settings.weekStartsOn = +t.dataset.v; UI.weekStart = null; save(); render(); },
@@ -4468,6 +5063,20 @@ const ACTS = {
     render();
     const back = el(focusId);
     if (back) { back.focus(); try { back.setSelectionRange(pos, pos); } catch (e) { } }
+  },
+  genOpen() { sheetGenerate(null); },
+  genScope(t) { UI.genOnlyEmpty = t.dataset.v === "empty"; sheetGenerate(null); },
+  genRun() {
+    const p = S.profiles[planPid()], wid = UI.weekStart || (UI.weekStart = weekIdOf(UI.date));
+    sheetGenerate(generateWeek(p, wid, { onlyEmpty: UI.genOnlyEmpty !== false }));
+  },
+  genApply() {
+    const r = sheetState.gen;
+    if (!r || !r.ok || !r.rows.length) return;
+    const p = S.profiles[planPid()], wid = UI.weekStart || weekIdOf(UI.date);
+    const n = applyGeneratedWeek(p, wid, r.rows);
+    closeSheet(); UI.tab = "plan"; render();
+    toast(n + " meal" + (n === 1 ? "" : "s") + " planned — Undo is on the Plan screen");
   },
   copyDayOpen() { sheetCopyDay(); },
   copyWeekOpen() { sheetCopyWeek(); },
