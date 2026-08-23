@@ -451,10 +451,42 @@ function backfillLibrary(st) {
   if (!st.foods) st.foods = {};
   if (!st.recipes) st.recipes = {};
   const foods = seedFoods();
-  for (const id of Object.keys(foods)) if (!st.foods[id]) st.foods[id] = JSON.parse(JSON.stringify(foods[id]));
+  for (const id of Object.keys(foods)) {
+    if (!st.foods[id]) { st.foods[id] = JSON.parse(JSON.stringify(foods[id])); continue; }
+    refreshSeedFood(st.foods[id], foods[id]);
+  }
   const recipes = seedRecipes();
   for (const id of Object.keys(recipes)) if (!st.recipes[id]) st.recipes[id] = JSON.parse(JSON.stringify(recipes[id]));
   return st;
+}
+
+/* Seed foods this app has renamed, id → the name it used to ship with. A rename
+   is only applied to a phone whose copy still carries the OLD name exactly; the
+   moment a name differs, it is somebody's edit and it is left alone. */
+const SEED_RENAMES = { f_mashpot: "Mashed potatoes, prepared" };
+
+/* LL-625. backfillLibrary used to be add-only, which was right for new foods and
+   silently wrong for corrected ones. When the adult read his tuna can and his peanut
+   butter jar on 2026-08-23, both foods went from "estimated" to "verified" in
+   this file — and neither change could ever have reached the phone in his
+   pocket, because those ids already existed there and add-only skipped them. He
+   would have gone on seeing a warning triangle against a number he had himself
+   confirmed, with no way to tell it was stale rather than genuinely unknown.
+   The refresh is deliberately narrow. It updates what the app KNOWS ABOUT a
+   number — the confidence state and the sourcing note — and it never touches the
+   number, because the number is the thing a user might have measured. It runs
+   only while the stored macros still match the seed exactly: change a single
+   figure and this food is yours, and the app stops having opinions about it. */
+function refreshSeedFood(stored, seed) {
+  if (!stored || !seed || stored.isCustom) return false;
+  const a = stored.per100g || {}, b = seed.per100g || {};
+  for (const k of ["kcal", "p", "c", "f", "fiber"]) if (a[k] !== b[k]) return false;
+  let changed = false;
+  if (stored.confidence !== seed.confidence) { stored.confidence = seed.confidence; changed = true; }
+  if (stored.source !== seed.source) { stored.source = seed.source; changed = true; }
+  const wasCalled = SEED_RENAMES[seed.id];
+  if (wasCalled && stored.name === wasCalled && seed.name !== wasCalled) { stored.name = seed.name; changed = true; }
+  return changed;
 }
 
 /* Stages 1–4 stored plans as plans[date][profileId][slotId] = [items].
@@ -533,6 +565,9 @@ const SHOP = {
   f_pbnat: { aisle: "Dry & Canned" },
   f_tuna: { aisle: "Dry & Canned" },
   f_mashpot: { aisle: "Dairy", perishDays: 7, perishNote: "refrigerated tub — check the date on the lid. A dry box keeps for months and belongs in Dry & Canned instead" },
+  f_butter: { aisle: "Dairy", pack: { grams: 454, label: "1 lb box, 4 sticks" } },
+  f_eggo: { aisle: "Frozen", countUnit: { grams: 35, one: "waffle", many: "waffles" } },
+  f_frtoast: { aisle: "Frozen", countUnit: { grams: 26.5, one: "stick", many: "sticks" } },
   f_pepper: { aisle: "Produce" }, f_onion: { aisle: "Produce" },
   f_broccoli: { aisle: "Produce", perishDays: 5, perishNote: "frozen florets remove the window entirely" },
   f_greenbean: { aisle: "Produce", perishDays: 5, perishNote: "frozen removes the window entirely" },
@@ -623,17 +658,39 @@ function seedFoods() {
     F("f_celery", "Celery, raw", 14, 0.69, 2.97, 0.17, 1.6, "verified",
       srl(169988, "Celery, raw", "14 kcal, 0.69 P, 2.97 C, 0.17 F, 1.6 fiber — every figure here is that record verbatim"),
       { portionHints: [{ label: "1 medium stalk", grams: 40 }, { label: "1 cup chopped", grams: 101 }] }),
-    F("f_pbnat", "Peanut butter, natural", 598, 22.2, 22.3, 51.4, 5.0, "estimated",
-      BRAND + ". Closest USDA analog is " + srl(172470, "Peanut butter, smooth style, without salt", "598 kcal, 22.21 P, 22.31 C, 51.36 F, 5.0 fiber") +
-      " — natural peanut butter is peanuts and salt, and salt carries no macros, so the unsalted record is the right analog. A jar with palm oil or added sugar will not match. Replace with the label on the adult's jar and set this to verified.",
+    F("f_pbnat", "Peanut butter, natural", 598, 22.2, 22.3, 51.4, 5.0, "verified",
+      "the adult read the jar 2026-08-23: 100% peanuts and nothing else — no salt, no palm oil, no added sugar. " +
+      "That makes " + srl(172470, "Peanut butter, smooth style, without salt", "598 kcal, 22.21 P, 22.31 C, 51.36 F, 5.0 fiber — re-pulled live from the FoodData Central API on 2026-08-23 and identical to the figures carried here") +
+      " an ingredient-for-ingredient match rather than an analog, which is why this is verified and not estimated. " +
+      "One open detail that is NOT worth a trip to the cupboard: this is the SMOOTH grind. The crunchy record (172469) is 589 kcal, 24.1 P, 21.6 C, 49.9 F, 8.0 fiber — 1.5% on calories, 2 g on protein. Change it only if you want it exact.",
       { dense: true }),
-    F("f_tuna", "Tuna, canned in water, drained", 116, 25.5, 0, 0.8, 0, "estimated",
-      BRAND + " (Sam's Club). Carried at USDA " + srl(171986, "Fish, tuna, light, canned in water, without salt, drained solids", "116 kcal, 25.5 P, 0 C, 0.82 F") +
-      ". IF THE CAN SAYS SOLID WHITE ALBACORE this is the wrong record: SR Legacy 171988 'Fish, tuna, white, canned in water, without salt, drained solids' is 128 kcal, 23.6 P, 2.97 F. Chunk light is the commoner bulk pack, which is why it is the default, but the can settles it.",
+    F("f_tuna", "Tuna, canned in water, drained", 116, 25.5, 0, 0.8, 0, "verified",
+      "the adult read the Sam's can 2026-08-23: CHUNK LIGHT. That settles which USDA record applies — " +
+      srl(171986, "Fish, tuna, light, canned in water, without salt, drained solids", "116 kcal, 25.5 P, 0 C, 0.82 F") +
+      ". The albacore record it might have been (171988, 128 kcal / 23.6 P / 2.97 F) does not apply and is recorded here only so nobody re-opens the question. " +
+      "WEIGH IT DRAINED. The water is most of what is in the can and none of what you eat; weighing undrained overstates the portion by roughly a third.",
       { aisle: "Dry & Canned" }),
-    F("f_mashpot", "Mashed potatoes, prepared", 106, 1.97, 13.3, 5.01, 1.9, "estimated",
-      BRAND + ". Carried at USDA " + srl(169768, "Potatoes, mashed, ready-to-eat", "106 kcal, 1.97 P, 13.3 C, 5.01 F, 1.9 fiber") +
-      ", which is the refrigerated prepared tub. Mashed potato is whatever went into it: home-made with milk and butter is SR Legacy 168555 at 113 kcal and 4.22 F, with milk alone 170493 at 83 kcal and 0.57 F, and dry flakes before preparing are 170445 at 354 kcal. If it is a box, weigh the DRY flakes and use that record instead.")
+    F("f_mashpot", "Mashed potatoes, store-bought tub", 106, 1.97, 13.3, 5.01, 1.9, "estimated",
+      "NOT the mash the adult makes — his is the “Mashed Potatoes (home-made)” RECIPE, added 2026-08-23 after he said he makes it with butter, salt, pepper and Mexican cheese. Use the recipe; it is built from ingredients whose numbers are known, instead of a guess at what a tub contains. " +
+      "This entry is kept only for the shop-bought version, at USDA " + srl(169768, "Potatoes, mashed, ready-to-eat", "106 kcal, 1.97 P, 13.3 C, 5.01 F, 1.9 fiber") +
+      ". A dry box is a different food again — 170445 at 354 kcal, and you weigh the DRY flakes."),
+
+    /* ---- LL-625 / LL-626, 2026-08-23. Butter exists so the home-made mash can
+       be a recipe rather than an invented number. Both breakfast items are
+       the minor's, named by the adult the same day. Every figure below came out of the
+       FoodData Central API that day, with the record id and the serving it was
+       derived from quoted so the match can be re-checked without re-searching. */
+    F("f_butter", "Butter, salted", 717, 0.85, 0.06, 81.1, 0, "verified",
+      srl(173410, "Butter, salted", "717 kcal, 0.85 P, 0.06 C, 81.1 F, 0 fiber — pulled live from the FoodData Central API on 2026-08-23. The unsalted record (173430) returns the same four macros to the decimal, because salt carries none; which stick is in the fridge does not change this entry"),
+      { dense: true, portionHints: [{ label: "1 tbsp", grams: 14 }, { label: "1 pat", grams: 5 }] }),
+    F("f_eggo", "Eggo waffles, Homestyle, frozen", 257, 6.1, 39.2, 8.7, 1.2, "estimated",
+      "the minor's breakfast (the adult, 2026-08-23). Kellogg's own label, filed as " + USDA + " Branded 2720969 “Kellogg's Eggo Waffles Homestyle 19.7oz”: a 70 g serving of 2 waffles at 180 kcal, i.e. 257 kcal / 6.1 P / 39.2 C / 8.7 F / 1.2 fiber per 100 g. Pulled live 2026-08-23. " +
+      "ESTIMATED for two specific reasons, both fixable by reading the box: the VARIETY was given only as “Eggo waffles” and Homestyle is the assumption — buttermilk, blueberry and the protein line all differ. And Kellogg has shipped two Homestyle labels; the other (Branded 2775387) is the same 257 kcal but 5.7 P / 44.3 C / 6.4 F, a 26% swing on fat. Read the minor's box and set this to verified.",
+      { aisle: "Frozen", portionHints: [{ label: "1 waffle", grams: 35 }, { label: "2 waffles — 1 serving", grams: 70 }] }),
+    F("f_frtoast", "French toast sticks, frozen", 302, 4.72, 42.4, 13.2, 0.9, "estimated",
+      "the minor's breakfast (the adult, 2026-08-23). Carried at " + USDA + " Branded 490754 “FRENCH TOAST STICKS, MEMBER'S MARK”: a 106 g serving of 4 pieces at 320 kcal, i.e. 302 kcal / 4.72 P / 42.4 C / 13.2 F / 0.9 fiber per 100 g. Pulled live 2026-08-23. " +
+      "Member's Mark is the Sam's Club house brand and the adult shops Sam's, which is the only reason this brand is the default — HE DID NOT SAY THE BRAND. This is the weakest number in the library and the spread is not small: across the twelve versions USDA holds, french toast sticks run 265 to 321 kcal per 100 g. Read the box.",
+      { aisle: "Frozen", portionHints: [{ label: "1 stick", grams: 26.5 }, { label: "4 sticks — 1 serving", grams: 106 }] })
   ];
   const out = {};
   list.forEach(f => out[f.id] = f);
@@ -738,6 +795,40 @@ function seedRecipes() {
     ],
     expectedCookedG: null, actualCookedG: null,
     holdsDays: 3, freezes: false, carFriendly: true
+  });
+  /* ---- LL-625, 2026-08-23. the adult makes his mash from scratch: potato, butter,
+     salt, pepper, Mexican cheese. That is a recipe, not a food, and the
+     difference matters. As a single food it would have to carry ONE invented
+     number for a dish whose calories swing by a factor of two depending on how
+     heavy the butter hand is. As a recipe every ingredient carries a number
+     somebody verified, and the only thing left to get right is the weights —
+     which the adult can set once, in the app, without anyone guessing on his behalf.
+     THE THREE WEIGHTS BELOW ARE A PLACEHOLDER, NOT HIS RECIPE. They are a
+     plausible five-portion pot and they are wrong for his kitchen by however
+     much his is different. The first method line says so, because a placeholder
+     that does not announce itself is just a fabrication with extra steps.
+     Salt and pepper are omitted deliberately: neither carries a macro, so
+     leaving them out changes nothing and adding them would imply a precision
+     this recipe does not have. Confidence resolves itself — f_mexcheese is
+     estimated, so weakest-wins makes the whole recipe estimated until the adult
+     puts his cheese label in. */
+  add({
+    id: "r_mashpot", name: "Mashed Potatoes (home-made)", servings: 5, prepMin: 30,
+    ingredients: [
+      { foodId: "f_potato", rawGrams: 1000, note: "peeled weight, before boiling" },
+      { foodId: "f_butter", rawGrams: 60, note: "~4 tbsp — CHANGE THIS to your actual stick" },
+      { foodId: "f_mexcheese", rawGrams: 100, note: "shredded, stirred in off heat" }
+    ],
+    method: [
+      "THESE WEIGHTS ARE A PLACEHOLDER. Edit the three ingredient amounts to match your pot once, and every meal built on this recipe is right from then on. The butter is the one that moves the number most.",
+      "Peel, cube, cover with cold water, boil ~18 min until a fork goes through with no resistance.",
+      "Drain properly and let them steam dry in the hot pot for a minute. Wet potatoes make glue.",
+      "Butter in first, mash. Salt and pepper to taste — neither adds a calorie.",
+      "Cheese in off the heat, stir until it disappears.",
+      "Weigh the finished pot and divide by 5, or change the serving count to however many you actually got."
+    ],
+    expectedCookedG: null, actualCookedG: null,
+    holdsDays: 4, freezes: false, carFriendly: false
   });
   return r;
 }

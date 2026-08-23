@@ -1,7 +1,7 @@
-/* LEANLINE service worker — build ef37189e776a
+/* LEANLINE service worker — build c4b3f258022c
    Cache-first. After the first visit the app never touches the network again,
    which is the same promise the single-file build makes, kept a different way. */
-const CACHE = "leanline-ef37189e776a";
+const CACHE = "leanline-c4b3f258022c";
 const ASSETS = ["./", "./index.html", "./manifest.webmanifest",
                 "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
 
