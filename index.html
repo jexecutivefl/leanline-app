@@ -2645,18 +2645,42 @@ function viewTrain(p) {
     return h;
   }
 
+  /* LL-629: a finished session is a summary, not a form. Reopen restores it. */
+  if (s.finishedAt) {
+    h += '<div class="card"><div class="eyebrow">' + esc(s.name) + ' · finished</div>';
+    if (!s.entries.length) h += '<p class="muted" style="margin:.5rem 0 0;font-size:.9375rem">Nothing was logged.</p>';
+    else {
+      h += '<div style="margin-top:.5rem">';
+      for (const e of s.entries) h += '<div class="item"><span class="grow"><span class="nm">' + esc(e.exercise) + '</span><br>' +
+        '<span class="sub num">' + esc(entrySummary(e)) + '</span></span></div>';
+      h += '</div>';
+    }
+    h += '<div style="height:.5rem"></div><button class="btn full" data-act="sessionReopen">Reopen this session</button></div>';
+    h += viewProgramCard(p);
+    h += viewTrainHistory(p);
+    return h;
+  }
+
   h += '<div class="card"><div class="eyebrow">' + esc(s.name) + '</div>';
   if (!s.entries.length) h += '<p class="muted" style="margin:.5rem 0 0;font-size:.9375rem">Nothing logged yet.</p>';
   for (const e of s.entries) h += viewExerciseBlock(p, d, e);
   h += '<div style="height:.5rem"></div><button class="btn full" data-act="exAdd">＋ Add an exercise</button></div>';
+  h += '<button class="btn primary full tall" data-act="sessionFinish">Finish workout</button>';
   h += viewProgramCard(p);
   h += viewTrainHistory(p);
   return h;
 }
 
 function viewExerciseBlock(p, d, e) {
+  /* LL-628: a done block collapses to one line. Edit puts it back exactly. */
+  if (e.done) {
+    return '<div class="exblock"><div class="row"><span class="grow"><b>' + esc(e.exercise) + '</b> <span class="muted" style="font-size:.8125rem">✓ done</span><br>' +
+      '<span class="sub num">' + esc(entrySummary(e)) + '</span></span>' +
+      '<button class="btn sm" data-act="exDone" data-ex="' + esc(e.exercise) + '" aria-label="Reopen ' + esc(e.exercise) + '">Edit</button></div></div>';
+  }
   const prev = previousFor(p.id, d, e.exercise);
   let h = '<div class="exblock"><div class="row"><span class="grow"><b>' + esc(e.exercise) + '</b></span>' +
+    '<button class="btn sm" data-act="exDone" data-ex="' + esc(e.exercise) + '" aria-label="Mark ' + esc(e.exercise) + ' done">Done</button>' +
     '<button class="btn sm danger" data-act="exDel" data-ex="' + esc(e.exercise) + '" aria-label="Remove ' + esc(e.exercise) + '">Remove</button></div>';
   if (e.locked) {
     h += '<p class="muted" style="font-size:.75rem;margin:.15rem 0 0;letter-spacing:.06em">OPENS THE SESSION · CANNOT BE MOVED DOWN</p>';
@@ -3528,6 +3552,43 @@ function removeExercise(pid, dateStr, exercise) {
   reorderSession(pid, s);
   save();
   return { ok: true };
+}
+/* LL-628. Done is a marker, not a gate: Edit reopens the block, nothing is
+   locked, scored, or praised. Absent on an old export = falsy = not done. */
+function toggleExerciseDone(pid, dateStr, exercise) {
+  const s = sessionOn(pid, dateStr);
+  if (!s) return { ok: false, why: "No session open." };
+  const e = s.entries.find(x => x.exercise === exercise);
+  if (!e) return { ok: false, why: "Not in this session." };
+  e.done = !e.done;
+  save();
+  return { ok: true, done: !!e.done };
+}
+/* LL-629. Closing a session freezes nothing — Reopen puts the logging UI back
+   exactly as it was. finishedAt is a fact, not a reward — constraint 8 copy
+   rules apply. Absent on an old export = falsy = still open; migrate() needs
+   nothing. */
+function finishSession(pid, dateStr) {
+  const s = sessionOn(pid, dateStr);
+  if (!s) return { ok: false, why: "No session open." };
+  s.finishedAt = new Date().toISOString();
+  save();
+  return { ok: true };
+}
+function reopenSession(pid, dateStr) {
+  const s = sessionOn(pid, dateStr);
+  if (!s) return { ok: false, why: "No session on this date." };
+  delete s.finishedAt;
+  save();
+  return { ok: true };
+}
+/* One line of what got logged — used by the done block (LL-628) and the
+   finished-session summary (LL-629). "Nothing logged" is a fact, not a nag. */
+function entrySummary(e) {
+  if (e.block || e.minutes !== undefined)
+    return e.minutes == null ? "no minutes logged" : R(e.minutes) + " min";
+  if (!e.sets.length) return "no sets logged";
+  return e.sets.map(x => R(x.lb) + " lb × " + x.reps).join(", ");
 }
 /* Swap the opener for a different explosive item — a choice, not a reorder. */
 function swapExplosive(pid, dateStr, name) {
@@ -5055,6 +5116,16 @@ const ACTS = {
   weekToday() { UI.weekStart = weekIdOf(isoDate()); render(); },
   planPid(t) { UI.planPid = t.dataset.id; render(); },
   sessionStart() { openSession(profile().id, UI.date); render(); },
+  sessionFinish() {
+    const r = finishSession(profile().id, UI.date);
+    if (!r.ok) { alert(r.why); return; }
+    render();
+  },
+  sessionReopen() {
+    const r = reopenSession(profile().id, UI.date);
+    if (!r.ok) { alert(r.why); return; }
+    render();
+  },
   schoolYes() { recordSchoolSC(profile().id, true); render(); },
   schoolNo() { recordSchoolSC(profile().id, false); render(); },
   progDay(t) { setProgramDay(profile().id, +t.dataset.i, t.value); render(); },
@@ -5075,6 +5146,11 @@ const ACTS = {
   exDel(t) {
     const r = removeExercise(profile().id, UI.date, t.dataset.ex);
     if (r && !r.ok) { alert(r.why); return; }
+    render();
+  },
+  exDone(t) {
+    const r = toggleExerciseDone(profile().id, UI.date, t.dataset.ex);
+    if (!r.ok) { alert(r.why); return; }
     render();
   },
   exSwap(t) {
