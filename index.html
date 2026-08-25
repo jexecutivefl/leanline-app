@@ -690,7 +690,45 @@ function seedFoods() {
     F("f_frtoast", "French toast sticks, frozen", 302, 4.72, 42.4, 13.2, 0.9, "estimated",
       "the minor's breakfast (the adult, 2026-08-23). Carried at " + USDA + " Branded 490754 “FRENCH TOAST STICKS, MEMBER'S MARK”: a 106 g serving of 4 pieces at 320 kcal, i.e. 302 kcal / 4.72 P / 42.4 C / 13.2 F / 0.9 fiber per 100 g. Pulled live 2026-08-23. " +
       "Member's Mark is the Sam's Club house brand and the adult shops Sam's, which is the only reason this brand is the default — HE DID NOT SAY THE BRAND. This is the weakest number in the library and the spread is not small: across the twelve versions USDA holds, french toast sticks run 265 to 321 kcal per 100 g. Read the box.",
-      { aisle: "Frozen", portionHints: [{ label: "1 stick", grams: 26.5 }, { label: "4 sticks — 1 serving", grams: 106 }] })
+      { aisle: "Frozen", portionHints: [{ label: "1 stick", grams: 26.5 }, { label: "4 sticks — 1 serving", grams: 106 }] }),
+
+    /* ---- LL-630, 2026-08-25. Road foods: what the adult can buy at Publix / Whole
+       Foods / Trader Joe's / a gas station and eat in the car. Researched with
+       prices the same day; the buying guide, prices and protein-per-dollar
+       ranking live in docs/08_ROAD_FOODS.md — prices never go in the app.
+       Every figure below is from the brand label or a named USDA FDC record;
+       the shakes carry an mL≈g caveat and are estimated for exactly that
+       reason. StarKist and Premier labels re-read first-hand 2026-08-25. */
+    F("f_tunapouch", "StarKist Chunk Light tuna pouch, in water", 94.6, 23.0, 0, 0.7, 0, "verified",
+      "starkist.com label, read first-hand 2026-08-25: one 2.6 oz (74 g) pouch = 70 kcal / 17 P / 0 C / 0.5 F. Per 100 g = ÷0.74. Fiber 0 by definition (animal food). Sodium 300 mg/pouch. No draining, no fork — the same fish as the Sam's can (f_tuna) in a single-serve pouch that lives in the glovebox; the can is cheaper per gram, the pouch opens at a red light.",
+      { aisle: "Dry & Canned", countUnit: { grams: 74, one: "pouch", many: "pouches" }, portionHints: [{ label: "1 pouch", grams: 74 }] }),
+    F("f_premier", "Premier Protein shake, chocolate, 11 oz carton", 49.2, 9.2, 1.2, 0.9, 0.6, "estimated",
+      "shop.premierprotein.com label, read first-hand 2026-08-25: one 11 fl oz (325 mL) carton = 160 kcal / 30 P / 4 C / 3 F / 2 fiber / 230 mg Na. ESTIMATED only because the per-100 g row treats 1 mL as 1 g and protein shakes run ~1.03–1.06 g/mL, so per-gram figures read a few percent low. LOG WHOLE CARTONS via the count unit and the totals are label-exact. Shelf-stable unopened (aseptic packaging — widely reported, not confirmed on the brand site); refrigerate after opening.",
+      { aisle: "Dry & Canned", liquid: true, countUnit: { grams: 325, one: "carton", many: "cartons" }, portionHints: [{ label: "1 carton (11 oz)", grams: 325 }] }),
+    F("f_corepower42", "Core Power Elite 42 g shake, chocolate, 14 oz", 55.6, 10.1, 2.2, 0.85, null, "estimated",
+      "fairlife.com label read 2026-08-25, cross-checked against USDA FDC Branded 2742751 (56 kcal / 10.1 P / 2.2 C / 0.85 F per 100 mL — identical): one 14 fl oz (414 mL) bottle = 230 kcal / 42 P / 9 C / 3.5 F / 260 mg Na. Same mL≈g caveat as f_premier — log whole bottles and the totals are label-exact. Fiber not on the record = null, not zero. The biggest single-package protein hit in the road-foods research: 42 g in one screw-cap bottle covers the whole in-car slot's protein.",
+      { aisle: "Dry & Canned", liquid: true, countUnit: { grams: 414, one: "bottle", many: "bottles" }, portionHints: [{ label: "1 bottle (14 oz)", grams: 414 }] }),
+    F("f_pureprotein", "Pure Protein bar, chocolate peanut butter", 400, 40.0, 32.0, 12.0, null, "verified",
+      "USDA FDC Branded 2666589, read 2026-08-25: one 50 g bar = 200 kcal / 20 P / 16 C / 6 F / 200 mg Na. Per 100 g = ×2. The brand site shows 17 C / 7 F — a minor label-version difference, recorded so nobody re-opens it. Fiber not on the record = null. Best bar economics in the road-foods research at the Walmart 6-count; singles cost more. Melts above ~90°F cabin temps — cosmetic, not safety.",
+      { aisle: "Dry & Canned", countUnit: { grams: 50, one: "bar", many: "bars" }, portionHints: [{ label: "1 bar", grams: 50 }] }),
+    F("f_questbar", "Quest bar, chocolate chip cookie dough", 316.7, 35.0, 36.7, 15.0, 20.0, "verified",
+      "questnutrition.com label, read 2026-08-25: one 60 g bar = 190 kcal / 21 P / 22 C (12 g fiber) / 9 F / 220 mg Na. Per 100 g = ÷0.60. The 12 g fiber is a third of the day's 33 g floor — same net-carb logic as the Carb Balance tortillas: do not count fiber grams as training fuel.",
+      { aisle: "Dry & Canned", countUnit: { grams: 60, one: "bar", many: "bars" }, portionHints: [{ label: "1 bar", grams: 60 }] }),
+    F("f_barebells", "Barebells bar, cookies & cream", 363.6, 36.4, 36.4, 12.7, null, "verified",
+      "USDA FDC Branded 2643090 (US label), read 2026-08-25: one 55 g bar = 200 kcal / 20 P / 20 C / 7 F / 75 mg Na. Per 100 g = ÷0.55. barebells.com shows the EU label at 194 kcal — the US FDC record is carried. Fiber not on the record = null. The candy-bar one, on purpose: a planned 200 kcal at 2 a.m. beats an unplanned drive-thru 1,100.",
+      { aisle: "Dry & Canned", countUnit: { grams: 55, one: "bar", many: "bars" }, portionHints: [{ label: "1 bar", grams: 55 }] }),
+    F("f_oikospro", "Oikos Pro yogurt cup, vanilla", 86.7, 13.3, 4.0, 2.0, null, "verified",
+      "oikos.com label, read 2026-08-25: one 5.3 oz (150 g) cup = 130 kcal / 20 P / 6 C / 3 F / 45 mg Na. Per 100 g = ÷1.5. Some retailer pages still show an older 140 kcal label — the brand site is carried; check the cup if it matters. Fiber not on the label = null. Lowest-sodium item in the road-foods research; needs the cooler bag and a spoon in the door pocket.",
+      { aisle: "Dairy", countUnit: { grams: 150, one: "cup", many: "cups" }, perishNote: "needs the cooler bag — FSIS: max 2 hours above 40°F, 1 hour above 90°F", portionHints: [{ label: "1 cup", grams: 150 }] }),
+    F("f_chobani", "Chobani plain nonfat Greek yogurt cup", 53.3, 9.3, 4.0, 0, 0, "verified",
+      "Chobani's official spec sheet, read 2026-08-25: one 5.3 oz (150 g) cup = 80 kcal / 14 P / 6 C / 0 F / 55 mg Na. Per 100 g = ÷1.5. A Target listing shows 90 kcal / 65 mg Na — label-version discrepancy, check the cup in hand. Fiber 0 by definition (plain cultured milk, nothing added). Cheapest dairy cup in the road-foods research; zero fat leaves the whole fat budget for real meals.",
+      { aisle: "Dairy", countUnit: { grams: 150, one: "cup", many: "cups" }, perishNote: "needs the cooler bag — FSIS: max 2 hours above 40°F, 1 hour above 90°F", portionHints: [{ label: "1 cup", grams: 150 }] }),
+    F("f_jacklinks", "Jack Link's Original beef jerky", 285.7, 35.7, 21.4, 5.4, null, "verified",
+      "USDA FDC Branded 2675784, read 2026-08-25: 80 kcal / 10 P / 6 C / 1.5 F per 28 g serving; jacklinks.com corroborates the 80 kcal. Per 100 g = ÷0.28. Fiber not on the record = null. SODIUM: ~521 mg per serving, ~1,712 mg per 3.25 oz bag — a whole bag the night before the Saturday weigh-in reads as a stall that is not one. Half-bag portions; it lives in the console for months.",
+      { aisle: "Dry & Canned", countUnit: { grams: 92, one: "bag (3.25 oz)", many: "bags (3.25 oz)" }, portionHints: [{ label: "1 serving", grams: 28 }, { label: "half bag", grams: 46 }] }),
+    F("f_tjjerky", "Trader Joe's turkey jerky, original", 214.3, 39.3, 21.4, 0, null, "estimated",
+      "USDA FDC Branded 397522, read 2026-08-25: 60 kcal / 11 P / 6 C / 0 F / 270 mg Na per 28 g serving. Per 100 g = ÷0.28. ESTIMATED because the record is from 2019 and the current shelf label could differ — reading today's bag settles it. Fiber not on the record = null. Fat-free jerky: the best protein-per-kcal of the dried meats and about a third of Jack Link's sodium per serving. Trader Joe's only.",
+      { aisle: "Dry & Canned", countUnit: { grams: 113, one: "bag (4 oz)", many: "bags (4 oz)" }, portionHints: [{ label: "1 serving", grams: 28 }] })
   ];
   const out = {};
   list.forEach(f => out[f.id] = f);
