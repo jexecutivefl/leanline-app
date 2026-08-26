@@ -545,6 +545,15 @@ const BRAND = "Brand-dependent analog — check your package";
    number of jars.
    ------------------------------------------------------------ */
 const AISLES = ["Produce", "Meat", "Dairy", "Dry & Canned", "Frozen", "Other"];
+/* LL-635. Which shop a food comes from. The default is the adult's own sentence
+   (2026-08-26): "I shop at publix and sams. most everything i get is at sams."
+   Later the same day he added "I also shop at gordon food services if
+   necessary", so GFS is a choice, never a default. Everything is Sam's Club
+   until he says otherwise, per food, in the food editor — no store assignment
+   in this file is a guess. "Other" exists for the things none of them sell
+   (the Trader Joe's jerky says so in its own note). */
+const STORES = ["Sam's Club", "Publix", "Gordon Food Service", "Other"];
+const DEFAULT_STORE = "Sam's Club";
 const OZ_G = 28.3495, LB_G = 453.592, GAL_G_MILK = 3899;   // 3.785 L × 1.03 g/mL
 /* perishDays / perishNote come from the "Perishable window" section of
    docs/03_WEEK_01.md. A food with no stated window gets no use-by day —
@@ -587,7 +596,62 @@ const SHOP = {
   f_cb10: { aisle: "Dry & Canned", countUnit: { grams: 70, one: "tortilla", many: "tortillas" }, pack: { grams: 6 * 70, label: "6 ct pack" }, tortilla: { size: "10\"", carbBalance: true } },
   f_cb10ww: { aisle: "Dry & Canned", countUnit: { grams: 71, one: "tortilla", many: "tortillas" }, pack: { grams: 6 * 71, label: "6 ct pack" }, tortilla: { size: "10\"", carbBalance: true } },
   f_cb6: { aisle: "Dry & Canned", countUnit: { grams: 28, one: "tortilla", many: "tortillas" }, pack: { grams: 8 * 28, label: "8 ct pack" }, tortilla: { size: "6\"", carbBalance: true } },
-  f_creatine: { aisle: "Other" }
+  f_creatine: { aisle: "Other" },
+  /* LL-635: the one seed food a store is KNOWN for. Its source note has said
+     "Trader Joe's only" since LL-630 — neither Sam's nor Publix carries it. */
+  f_tjjerky: { store: "Other" },
+  /* LL-631 proteins. No perish windows invented — only chicken and sirloin have
+     stated windows in 03_WEEK_01.md. Cooked/boiled forms shop as their raw form. */
+  f_gb8515: { aisle: "Meat" },
+  f_gb8515c: { aisle: "Meat", buyAs: { foodId: "f_gb8515", basis: "kcal" } },
+  f_gb8020: { aisle: "Meat" },
+  f_shrimp: { aisle: "Frozen" },
+  f_shrimpc: { aisle: "Frozen", buyAs: { foodId: "f_shrimp", basis: "kcal" } },
+  f_deliham: { aisle: "Meat" },
+  f_deliturk: { aisle: "Meat" },
+  f_chkthigh: { aisle: "Meat" },
+  f_grchk: { aisle: "Meat" },
+  f_eyeround: { aisle: "Meat" },
+  f_egghb: { aisle: "Dairy", countUnit: { grams: 50, one: "large egg", many: "large eggs" }, buyAs: { foodId: "f_egg", basis: "kcal" } },
+  f_mcdsb: { aisle: "Other", store: "Other", countUnit: { grams: 109, one: "burrito", many: "burritos" } },
+  /* LL-632. Bread counts in slices/rolls/bagels; drinks and produce carry the
+     USDA unit the portion hints quote. No pack sizes — none were sourced. */
+  f_hvycream: { aisle: "Dairy" },
+  f_stonyfield: { aisle: "Dairy" },
+  f_yogwm: { aisle: "Dairy" },
+  f_cheddar: { aisle: "Dairy" },
+  f_bread: { aisle: "Dry & Canned", countUnit: { grams: 27, one: "slice", many: "slices" } },
+  f_bagel: { aisle: "Dry & Canned", countUnit: { grams: 105, one: "bagel", many: "bagels" } },
+  f_roll: { aisle: "Dry & Canned", countUnit: { grams: 44, one: "roll", many: "rolls" } },
+  f_ctc: { aisle: "Dry & Canned" },
+  f_pancake: { aisle: "Dry & Canned", countUnit: { grams: 38, one: "pancake (4\")", many: "pancakes (4\")" } },
+  f_basmati: { aisle: "Dry & Canned" },
+  f_avocado: { aisle: "Produce", countUnit: { grams: 136, one: "avocado (flesh)", many: "avocados (flesh)" } },
+  f_strawb: { aisle: "Produce" },
+  f_blueb: { aisle: "Produce" },
+  f_melon: { aisle: "Produce" },
+  f_romaine: { aisle: "Produce" },
+  f_greens: { aisle: "Produce" },
+  f_applejuice: { aisle: "Dry & Canned" },
+  f_cola: { aisle: "Dry & Canned", countUnit: { grams: 370, one: "12 oz can", many: "12 oz cans" } },
+  f_water: { aisle: "Dry & Canned", countUnit: { grams: 500, one: "bottle", many: "bottles" } },
+  /* LL-633 condiments: everything shelf-stable, garlic in Produce. */
+  f_ragu: { aisle: "Dry & Canned" },
+  f_mayo: { aisle: "Dry & Canned" },
+  f_ketchup: { aisle: "Dry & Canned" },
+  f_mustard: { aisle: "Dry & Canned" },
+  f_bbq: { aisle: "Dry & Canned" },
+  f_lemon: { aisle: "Dry & Canned" },
+  f_ranch: { aisle: "Dry & Canned" },
+  f_darkchoc: { aisle: "Dry & Canned" },
+  f_bcsauce: { aisle: "Dry & Canned" },
+  f_garlic: { aisle: "Produce" },
+  /* LL-641 */
+  f_sbrwing: { aisle: "Dry & Canned" },
+  f_makoto: { aisle: "Dairy", perishNote: "refrigerated dressing — lives in the cold case, check the date" },
+  f_yumyum: { aisle: "Dry & Canned" },
+  f_bfham: { aisle: "Meat" },
+  f_kraftsingle: { aisle: "Dairy", countUnit: { grams: 21, one: "slice", many: "slices" } }
 };
 function applyShopping(foods) {
   for (const [id, meta] of Object.entries(SHOP)) {
@@ -601,8 +665,12 @@ function applyShopping(foods) {
     if (meta.perishNote && !f.perishNote) f.perishNote = meta.perishNote;
     if (meta.tortilla && !f.tortilla) f.tortilla = meta.tortilla;
     if (meta.buyAs && !f.buyAs) f.buyAs = meta.buyAs;
+    if (meta.store && !f.store) f.store = meta.store;
   }
-  for (const f of Object.values(foods)) if (!f.aisle) f.aisle = "Other";
+  for (const f of Object.values(foods)) {
+    if (!f.aisle) f.aisle = "Other";
+    if (!f.store) f.store = DEFAULT_STORE;      // LL-635: "most everything i get is at sams"
+  }
   return foods;
 }
 
@@ -628,7 +696,7 @@ function seedFoods() {
     F("f_milk", "Whole milk", 61, 3.2, 4.8, 3.3, 0, "verified", USDA, { portionHints: [{ label: "1 cup", grams: 244 }] }),
     F("f_cottage", "Cottage cheese, 4%", 98, 11.1, 3.4, 4.3, 0, "verified", USDA),
     F("f_sourcream", "Sour cream, regular", 198, 2.4, 4.6, 19.4, 0, "verified", USDA, { dense: true }),
-    F("f_apple", "Apple, with skin", 52, 0.3, 13.8, 0.2, 2.4, "verified", srl(171688, "Apples, raw, with skin", "52 kcal/100 g, identical to this record. Fiber 2.4 g"), { portionHints: [{ label: "1 medium", grams: 182 }] }),
+    F("f_apple", "Apple, with skin", 52, 0.3, 13.8, 0.2, 2.4, "verified", srl(171688, "Apples, raw, with skin", "52 kcal/100 g, identical to this record. Fiber 2.4 g") + " the adult buys GALA (2026-08-26): the gala-specific record 168204 reads 57 kcal / 2.3 fiber with 1 medium = 172 g. This entry stays USDA's generic apple — a 5 kcal/100 g difference — until he wants the swap.", { portionHints: [{ label: "1 medium", grams: 182 }] }),
     F("f_banana", "Banana", 89, 1.1, 22.8, 0.3, 2.6, "verified", srl(173944, "Bananas, raw", "89 kcal/100 g, identical to this record. Fiber 2.6 g"), { portionHints: [{ label: "1 medium", grams: 118 }] }),
     F("f_prunes", "Prunes, dried", 240, 2.2, 63.9, 0.4, 7.1, "verified", srl(168162, "Plums, dried (prunes), uncooked", "240 kcal/100 g, identical to this record. Fiber 7.1 g")),
     F("f_soy", "Soy sauce", 53, 8.1, 4.9, 0.6, 0.8, "verified", srl(174277, "Soy sauce made from soy and wheat (shoyu)", "53 kcal/100 g, identical to this record. Fiber 0.8 g"), { portionHints: [{ label: "1 tbsp", grams: 15 }] }),
@@ -728,7 +796,159 @@ function seedFoods() {
       { aisle: "Dry & Canned", countUnit: { grams: 92, one: "bag (3.25 oz)", many: "bags (3.25 oz)" }, portionHints: [{ label: "1 serving", grams: 28 }, { label: "half bag", grams: 46 }] }),
     F("f_tjjerky", "Trader Joe's turkey jerky, original", 214.3, 39.3, 21.4, 0, null, "estimated",
       "USDA FDC Branded 397522, read 2026-08-25: 60 kcal / 11 P / 6 C / 0 F / 270 mg Na per 28 g serving. Per 100 g = ÷0.28. ESTIMATED because the record is from 2019 and the current shelf label could differ — reading today's bag settles it. Fiber not on the record = null. Fat-free jerky: the best protein-per-kcal of the dried meats and about a third of Jack Link's sodium per serving. Trader Joe's only.",
-      { aisle: "Dry & Canned", countUnit: { grams: 113, one: "bag (4 oz)", many: "bags (4 oz)" }, portionHints: [{ label: "1 serving", grams: 28 }] })
+      { aisle: "Dry & Canned", countUnit: { grams: 113, one: "bag (4 oz)", many: "bags (4 oz)" }, portionHints: [{ label: "1 serving", grams: 28 }] }),
+
+    /* ---- LL-631, 2026-08-26. the adult re-sent his full eating list and the audit
+       found the library beef-less while his list is beef-forward. Every figure
+       below was researched against USDA FoodData Central the same day, with the
+       record id quoted; where the PRODUCT in his cart is not pinned down (which
+       shrimp, which ham, which trim) the confidence is estimated and the source
+       names the alternative records so switching is an edit, not a research job. */
+    F("f_gb8515", "Ground beef 85/15, raw", 215, 18.6, 0, 15.0, 0, "verified",
+      "the adult named the ratio himself — 85/15 is his word, not an assumption. " + srl(171796, "Beef, ground, 85% lean meat / 15% fat, raw", "215 kcal, 18.6 P, 0 C, 15.0 F — the record verbatim, retrieved 2026-08-26")),
+    F("f_gb8515c", "Ground beef 85/15, pan-browned, drained", 256, 27.7, 0, 15.3, 0, "verified",
+      srl(174034, "Beef, ground, 85% lean meat / 15% fat, crumbles, cooked, pan-browned", "256 kcal, 27.7 P, 0 C, 15.3 F — the record verbatim, retrieved 2026-08-26. the adult drains his — the record is crumbles as poured off, so a heavy drain runs slightly leaner than this") ,
+      { buyAs: { foodId: "f_gb8515", basis: "kcal" } }),
+    F("f_gb8020", "Ground beef 80/20, raw", 254, 17.2, 0, 20.0, 0, "estimated",
+      "the adult wrote “85/25”, which is not a ratio beef is sold at — 80/20 is the nearest common one and is what this record carries: " + srl(174036, "Beef, ground, 80% lean meat / 20% fat, raw", "254 kcal, 17.2 P, 0 C, 20.0 F, retrieved 2026-08-26") + " If the package actually says 73/27 or 75/25, say so and this entry moves to that record."),
+    F("f_shrimp", "Shrimp, peeled, raw (frozen bag)", 71, 13.6, 0.91, 1.01, 0, "estimated",
+      "Typical frozen peeled shrimp is treated to retain moisture, and that is what this record is: " + srl(174210, "Crustaceans, shrimp, mixed species, raw (may contain additives to retain moisture)", "71 kcal, 13.6 P, 0.91 C, 1.01 F, retrieved 2026-08-26") + " Untreated shrimp (175179) runs 85 kcal / 20.1 P — a 48% protein swing, which is why this is estimated until the bag in the freezer says which it is. Fiber 0 by definition (animal food)."),
+    F("f_shrimpc", "Shrimp, cooked", 119, 22.8, 1.52, 1.70, 0, "estimated",
+      srl(171971, "Crustaceans, shrimp, mixed species, cooked, moist heat (may contain additives to retain moisture)", "119 kcal, 22.8 P, 1.52 C, 1.70 F, retrieved 2026-08-26") + " Estimated for the same reason as the raw entry: whether the bag is additive-treated moves the number.",
+      { buyAs: { foodId: "f_shrimp", basis: "kcal" } }),
+    F("f_deliham", "Deli ham, sliced", 107, 16.8, 0.70, 4.04, 0, "estimated",
+      "Carried at the lean record: " + srl(173863, "Ham, sliced, pre-packaged, deli meat (96% fat free, water added)", "107 kcal, 16.8 P, 0.70 C, 4.04 F, retrieved 2026-08-26") + " Regular deli ham (173864) is 164 kcal / 8.8 F — half again the calories. Which one is in the drawer decides this; read the label and set it."),
+    F("f_deliturk", "Deli turkey breast, sliced", 106, 14.8, 2.2, 3.77, 0, "estimated",
+      srl(172941, "Turkey breast, sliced, prepackaged", "106 kcal, 14.8 P, 2.2 C, 3.77 F, retrieved 2026-08-26") + " Brand not stated — deli turkey runs close to this across brands, but the label wins."),
+    F("f_chkthigh", "Chicken thigh, boneless skinless, raw", 144, 18.6, 0, 7.92, 0, "verified",
+      USDA + " Foundation 2646171 “Chicken, thigh, boneless, skinless, raw”: 144 kcal (Atwater general), 18.6 P, 0 C, 7.92 F, retrieved 2026-08-26. Fiber 0 by definition (animal food) — the record simply omits it."),
+    F("f_grchk", "Ground chicken, raw", 143, 17.4, 0.04, 8.1, 0, "verified",
+      srl(171116, "Chicken, ground, raw", "143 kcal, 17.4 P, 0.04 C, 8.1 F — the record verbatim, retrieved 2026-08-26")),
+    F("f_eyeround", "Eye of round roast, raw", 166, 21.5, 0, 8.24, 0, "estimated",
+      "Trim decides this cut. Carried at 1/8” trim: " + srl(169523, "Beef, round, eye of round, roast, separable lean and fat, trimmed to 1/8 inch fat, all grades, raw", "166 kcal, 21.5 P, 0 C, 8.24 F, retrieved 2026-08-26") + " Trimmed to 0” (171745) is 124 kcal / 3.44 F. Same reasoning as the sirloin entry: moderate trim assumed until the adult says how he trims."),
+    F("f_egghb", "Egg, hard-boiled", 155, 12.58, 1.12, 10.61, 0, "verified",
+      srl(173424, "Egg, whole, cooked, hard-boiled", "155 kcal, 12.58 P, 1.12 C, 10.61 F — the record verbatim, retrieved 2026-08-26"),
+      { portionHints: [{ label: "1 large", grams: 50 }], buyAs: { foodId: "f_egg", basis: "kcal" } }),
+    F("f_mcdsb", "McDonald's Sausage Burrito (bought)", 277, 11.1, 23.0, 15.6, 1.2, "estimated",
+      srl(172063, "McDONALD'S, Sausage Burrito", "277 kcal, 11.1 P, 23.0 C, 15.6 F, 1.2 fiber per 100 g; USDA's portion row says 1 burrito = 109 g, retrieved 2026-08-26") + " Estimated because the record predates the current menu and mcdonalds.com could not be reached to confirm today's label — aggregators show ~300-310 kcal per burrito, which is consistent with this record at 109 g but is not a source."),
+
+    /* ---- LL-632, 2026-08-26. The rest of the adult's list: dairy, carbs, produce,
+       drinks. Same discipline as LL-631 — named USDA records or the brand's own
+       label, retrieved 2026-08-26; label-derived per-100 g rows quote the label
+       serving they divide from. Water is the one entry with no source, because
+       zero is its definition, not a measurement. */
+    F("f_hvycream", "Heavy whipping cream", 340, 2.84, 2.84, 36.1, 0, "verified",
+      srl(170859, "Cream, fluid, heavy whipping", "340 kcal, 2.84 P, 2.84 C, 36.1 F — the record verbatim, retrieved 2026-08-26"),
+      { dense: true, portionHints: [{ label: "1 tbsp", grams: 15 }] }),
+    F("f_stonyfield", "Stonyfield whole-milk Greek yogurt, plain", 88.2, 9.4, 4.1, 3.5, 0, "verified",
+      "stonyfield.com label for Organic Greek Whole Milk Plain (30 oz tub), read 2026-08-26: 3/4 cup (170 g) = 150 kcal / 16 P / 7 C / 6 F / 0 fiber. Per 100 g = ÷1.7. the adult named the brand himself. Fiber 0 by definition (plain cultured milk).",
+      { portionHints: [{ label: "3/4 cup — 1 serving", grams: 170 }] }),
+    F("f_yogwm", "Whole-milk yogurt, plain", 61, 3.47, 4.66, 3.25, 0, "verified",
+      srl(171284, "Yogurt, plain, whole milk", "61 kcal, 3.47 P, 4.66 C, 3.25 F — the record verbatim, retrieved 2026-08-26")),
+    F("f_cheddar", "Cheddar cheese", 403, 22.87, 3.37, 33.31, 0, "verified",
+      srl(173414, "Cheese, cheddar", "403 kcal, 22.87 P, 3.37 C, 33.31 F — the record verbatim, retrieved 2026-08-26"),
+      { dense: true, portionHints: [{ label: "1 slice", grams: 28 }] }),
+    F("f_bread", "White sandwich bread", 266, 8.85, 49.42, 3.33, 2.7, "verified",
+      srl(174924, "Bread, white, commercially prepared", "266 kcal, 8.85 P, 49.42 C, 3.33 F, 2.7 fiber, retrieved 2026-08-26. USDA's own slice weights run 25-29 g regular (thin 20, large 30); the 27 g hint is the middle of USDA's stated regular range, not a measurement"),
+      { portionHints: [{ label: "1 slice, regular", grams: 27 }] }),
+    F("f_bagel", "Bagel, plain", 264, 10.56, 52.38, 1.32, 1.6, "verified",
+      srl(174899, "Bagels, plain, enriched, with calcium propionate", "264 kcal, 10.56 P, 52.38 C, 1.32 F, 1.6 fiber, retrieved 2026-08-26. USDA portion: 1 medium 3.5-4 inch bagel = 105 g"),
+      { portionHints: [{ label: "1 medium bagel", grams: 105 }] }),
+    F("f_roll", "Hamburger / sandwich roll", 279, 9.77, 50.12, 3.91, 1.8, "verified",
+      srl(172796, "Rolls, hamburger or hotdog, plain", "279 kcal, 9.77 P, 50.12 C, 3.91 F, 1.8 fiber, retrieved 2026-08-26; 1 roll = 44 g. The plain dinner roll (172793) is 310 kcal at 28 g each — switch if that is what is actually in the bag"),
+      { portionHints: [{ label: "1 roll", grams: 44 }] }),
+    F("f_ctc", "Cinnamon Toast Crunch", 415, 4.9, 80.5, 9.8, 4.9, "estimated",
+      "General Mills' own page, read 2026-08-26: 1 cup = 170 kcal / 2 P / 33 C / 4 F. The site omits serving grams; 41 g comes from USDA Branded 1848028, and per 100 g = ÷0.41. ESTIMATED because the two sources disagree on fiber — the site says 3 g a serving, the USDA record 2 g (4.9/100 g carried, from the record) — and box labels revise often. The box in the cupboard settles it.",
+      { portionHints: [{ label: "1 cup — 1 serving", grams: 41 }] }),
+    F("f_pancake", "Pancakes, from complete mix", 194, 5.2, 36.7, 2.5, 1.3, "estimated",
+      srl(175006, "Pancakes, plain, dry mix, complete, prepared", "194 kcal, 5.2 P, 36.7 C, 2.5 F, 1.3 fiber, retrieved 2026-08-26; one 4 inch pancake = 38 g") + " ESTIMATED because how the minor's pancakes are actually made was never stated — from scratch (175009) runs 227 kcal / 9.7 F. Say which and this settles.",
+      { portionHints: [{ label: "1 pancake, 4\"", grams: 38 }, { label: "1 pancake, 6\"", grams: 77 }] }),
+    F("f_basmati", "Basmati rice, dry", 356, 6.7, 80.0, 0, 0, "estimated",
+      "USDA Branded 578588 “Authentic basmati rice, ROYAL”, read 2026-08-26: 1/4 cup dry (45 g) = 160 kcal / 3 P / 36 C / 0 F / 0 fiber; per 100 g = ÷0.45. ESTIMATED twice over: whether the bag is Royal was never stated, and the label's 0 fat / 0 fiber are label roundings — the generic long-grain record (f_ricedry) carries 0.7 F / 1.3 fiber. Cooked basmati logs as f_ricec."),
+    F("f_avocado", "Avocado, raw", 167, 1.96, 8.64, 15.41, 6.8, "verified",
+      srl(171706, "Avocados, raw, California", "167 kcal, 1.96 P, 8.64 C, 15.41 F, 6.8 fiber — the record verbatim, retrieved 2026-08-26. California is USDA's Hass-type entry; 1 fruit's flesh without skin and seed = 136 g"),
+      { portionHints: [{ label: "1 avocado, flesh", grams: 136 }, { label: "half an avocado", grams: 68 }] }),
+    F("f_strawb", "Strawberries, raw", 32, 0.67, 7.68, 0.30, 2.0, "verified",
+      srl(167762, "Strawberries, raw", "32 kcal, 0.67 P, 7.68 C, 0.30 F, 2.0 fiber — the record verbatim, retrieved 2026-08-26"),
+      { portionHints: [{ label: "1 cup, whole", grams: 144 }] }),
+    F("f_blueb", "Blueberries, raw", 57, 0.74, 14.49, 0.33, 2.4, "verified",
+      srl(171711, "Blueberries, raw", "57 kcal, 0.74 P, 14.49 C, 0.33 F, 2.4 fiber — the record verbatim, retrieved 2026-08-26"),
+      { portionHints: [{ label: "1 cup", grams: 148 }] }),
+    F("f_melon", "Watermelon, raw", 30, 0.61, 7.55, 0.15, 0.4, "verified",
+      srl(167765, "Watermelon, raw", "30 kcal, 0.61 P, 7.55 C, 0.15 F, 0.4 fiber — the record verbatim, retrieved 2026-08-26"),
+      { portionHints: [{ label: "1 cup, diced", grams: 152 }] }),
+    F("f_romaine", "Romaine lettuce, raw", 17, 1.23, 3.29, 0.30, 2.1, "verified",
+      srl(169247, "Lettuce, cos or romaine, raw", "17 kcal, 1.23 P, 3.29 C, 0.30 F, 2.1 fiber — the record verbatim, retrieved 2026-08-26"),
+      { portionHints: [{ label: "1 cup, shredded", grams: 47 }] }),
+    F("f_greens", "Salad greens, spring mix", 21, 1.31, 3.43, 0.21, 1.4, "estimated",
+      "USDA Survey FNDDS 2709792 “Mixed salad greens, raw”, retrieved 2026-08-26: 21 kcal, 1.31 P, 3.43 C, 0.21 F, 1.4 fiber. ESTIMATED because no Foundation or SR Legacy entry for mixed greens exists and which greens are in the box varies by bag; the numbers barely matter at salad quantities.",
+      { portionHints: [{ label: "1 cup", grams: 35 }] }),
+    F("f_applejuice", "Apple juice, unsweetened", 46, 0.10, 11.30, 0.13, 0.2, "verified",
+      srl(173933, "Apple juice, canned or bottled, unsweetened, without added ascorbic acid", "46 kcal, 0.10 P, 11.30 C, 0.13 F, 0.2 fiber — the record verbatim, retrieved 2026-08-26"),
+      { portionHints: [{ label: "1 cup", grams: 248 }] }),
+    F("f_cola", "Cola, regular", 42, 0, 10.36, 0.25, 0, "verified",
+      srl(174852, "Beverages, carbonated, cola, regular", "42 kcal, 0 P, 10.36 C, 0.25 F — the record verbatim, retrieved 2026-08-26"),
+      { portionHints: [{ label: "12 oz can", grams: 370 }] }),
+    F("f_water", "Bottled water", 0, 0, 0, 0, 0, "verified",
+      "Zero by definition — water carries no macronutrients. This entry exists so water can sit on a grocery list, not to be tracked.",
+      { portionHints: [{ label: "1 bottle (16.9 oz)", grams: 500 }] }),
+
+    /* ---- LL-633, 2026-08-26. Condiments and sauces. The Ragu matters most:
+       the adult's meat sauce is built on Ragu Traditional, and the plain canned
+       tomato sauce already seeded (f_tomsauce, 24 kcal) is less than half its
+       calories — logging one as the other misstates every meat-sauce meal. */
+    F("f_ragu", "Ragu Old World Style Traditional", 56, 1.6, 10.4, 1.2, 2.4, "verified",
+      "ragu.com label, read 2026-08-26: 1/2 cup (125 g) = 70 kcal / 2 P / 13 C / 1.5 F / 3 fiber. Per 100 g = ÷1.25. the adult named the sauce himself. NOT the same food as f_tomsauce (plain canned, 24 kcal/100 g) — the added oil and sugar are the difference.",
+      { portionHints: [{ label: "1/2 cup — 1 serving", grams: 125 }] }),
+    F("f_mayo", "Mayonnaise, regular", 680, 0.96, 0.57, 74.8, 0, "verified",
+      srl(171009, "Salad dressing, mayonnaise, regular", "680 kcal, 0.96 P, 0.57 C, 74.8 F — the record verbatim, retrieved 2026-08-26"),
+      { dense: true, portionHints: [{ label: "1 tbsp", grams: 14 }] }),
+    F("f_ketchup", "Ketchup", 101, 1.04, 27.4, 0.1, 0.3, "verified",
+      srl(168556, "Catsup", "101 kcal, 1.04 P, 27.4 C, 0.1 F, 0.3 fiber — the record verbatim, retrieved 2026-08-26"),
+      { portionHints: [{ label: "1 tbsp", grams: 17 }] }),
+    F("f_mustard", "Yellow mustard", 61, 4.25, 5.3, 3.38, 4.3, "verified",
+      USDA + " Foundation 326698 “Mustard, prepared, yellow”: 61 kcal, 4.25 P, 5.3 C, 3.38 F, 4.3 fiber, retrieved 2026-08-26.",
+      { portionHints: [{ label: "1 tsp", grams: 5 }] }),
+    F("f_bbq", "BBQ sauce", 200, 0, 51.4, 0, 0, "estimated",
+      "Carried at Sweet Baby Ray's Original — the brand is an assumption, the adult said only “BBQ sauce”. SBR's foodservice label, read 2026-08-26: 1.25 oz (35 g) = 70 kcal / 0 P / 18 C / 0 F. Per 100 g = ÷0.35. BBQ sauces run roughly 120-230 kcal/100 g by brand; the bottle in the fridge settles it.",
+      { portionHints: [{ label: "2 tbsp", grams: 36 }] }),
+    F("f_lemon", "Lemon juice", 22, 0.35, 6.9, 0.24, 0.3, "verified",
+      srl(167747, "Lemon juice, raw", "22 kcal, 0.35 P, 6.9 C, 0.24 F, 0.3 fiber — the record verbatim, retrieved 2026-08-26"),
+      { portionHints: [{ label: "1 tbsp", grams: 15 }] }),
+    F("f_ranch", "Ranch dressing", 430, 1.32, 5.9, 44.5, 0, "estimated",
+      "Carried at USDA generic regular ranch: " + srl(173592, "Salad dressing, ranch dressing, regular", "430 kcal, 1.32 P, 5.9 C, 44.5 F, retrieved 2026-08-26") + " the adult said “salad dressings”, plural — which bottle varies, and light versions run under half these calories. Estimated until a bottle is named.",
+      { dense: true, portionHints: [{ label: "2 tbsp", grams: 30 }] }),
+    F("f_darkchoc", "Dark chocolate", 598, 7.79, 45.9, 42.6, 10.9, "estimated",
+      "Carried at " + srl(170273, "Chocolate, dark, 70-85% cacao solids", "598 kcal, 7.79 P, 45.9 C, 42.6 F, 10.9 fiber, retrieved 2026-08-26") + " The cacao percentage of the adult's bar was never stated; 60-69% (170272) runs sweeter at 579 kcal with half the fiber. The wrapper settles it.",
+      { dense: true, portionHints: [{ label: "1 square (of a 100 g bar)", grams: 10 }] }),
+    F("f_bcsauce", "Butter chicken simmer sauce, jarred", 143, 1.8, 8.9, 10.7, 0, "estimated",
+      "Carried at Maya Kaimal Butter Masala: 1/4 cup (56 g) = 80 kcal / 1 P / 5 C / 6 F. Per 100 g = ÷0.56. THE WEAKEST SOURCE IN THIS BATCH, twice over: the brand is an assumption (no jar was named), and the panel comes from a retailer's reproduction of the label, read 2026-08-26 — the manufacturer's own site publishes none. Whatever jar is actually in the cupboard, read it and replace this.",
+      { portionHints: [{ label: "1/4 cup — 1 serving", grams: 56 }] }),
+    F("f_garlic", "Garlic, raw", 149, 6.36, 33.1, 0.5, 2.1, "verified",
+      srl(169230, "Garlic, raw", "149 kcal, 6.36 P, 33.1 C, 0.5 F, 2.1 fiber — the record verbatim, retrieved 2026-08-26; 1 clove = 3 g"),
+      { portionHints: [{ label: "1 clove", grams: 3 }] }),
+
+    /* ---- LL-641, 2026-08-26. Five brands the adult named the same day. One real
+       finding: Sweet Baby Ray's does not sell a "Medium" wing sauce — the
+       lineup is Buffalo / Mild Buffalo / Garlic Buffalo / Nashville Hot.
+       Buffalo and Mild Buffalo carry IDENTICAL macros on their USDA records,
+       so the numbers below are right whichever his bottle is; the name on the
+       bottle is still worth a look. */
+    F("f_sbrwing", "Sweet Baby Ray's wing sauce (Buffalo)", 133, 0, 6.7, 13.3, 0, "estimated",
+      "the adult asked for “medium wing sauce” — SBR sells no Medium. Carried at USDA Branded 485662 “SWEET BABY RAY'S, BUFFALO WING SAUCE”: 1 Tbsp (15 mL) = 20 kcal / 0 P / 1 C / 2 F; per 100 mL = 133 kcal. Mild Buffalo (1966662) is macro-identical, so this is right either way. ESTIMATED because the label serving is millilitres and this row treats 1 mL as 1 g — same caveat as the protein shakes — and because the exact bottle is unconfirmed. Read the bottle's name off the front when convenient.",
+      { portionHints: [{ label: "1 tbsp", grams: 15 }] }),
+    F("f_makoto", "Makoto Ginger Dressing", 258, 3.2, 6.5, 22.6, 0, "estimated",
+      "USDA Branded 385577 “GINGER DRESSING”, Makoto Dressing Inc: 2 Tbsp (31 g) = 80 kcal / 1 P / 2 C / 7 F / 0 fiber; per 100 g = ÷0.31. ESTIMATED only because the record is from 2019 — same convention as the Trader Joe's jerky. Current label reproductions match these macros exactly, so it is very likely still right; the bottle settles it.",
+      { dense: true, portionHints: [{ label: "2 tbsp — 1 serving", grams: 31 }] }),
+    F("f_yumyum", "Terry Ho's Yum Yum Sauce", 567, 0, 16.7, 56.7, 0, "verified",
+      "USDA Branded 2671145 “YUM YUM SAUCE”, Terry Ho Products LLC (2023 label): 2 Tbsp (30 g) = 170 kcal / 0 P / 5 C / 17 F / 0 fiber; per 100 g = ÷0.30. Retrieved 2026-08-26. Worth knowing: this is the most calorie-dense sauce in the library — 2 tablespoons carry more calories than a whole chicken breast serving carries fat.",
+      { dense: true, portionHints: [{ label: "2 tbsp — 1 serving", grams: 30 }] }),
+    F("f_bfham", "Black Forest ham, sliced", 96, 17.3, 1.9, 1.9, 0, "estimated",
+      "the adult buys whichever of Publix, Sam's or Walmart is convenient, and they differ: Publix (USDA Branded 1987418) 89 kcal / 17.9 P, Member's Mark uncured (2157682) 96 / 17.3, Great Value (2668689) 107 / 16.1 per 100 g. Carried at MEMBER'S MARK because Sam's is his default shop. The ~20% kcal spread is why this is estimated; on a 56 g sandwich portion the swing is ~10 kcal, so it barely matters. All three records are the packaged tubs, not deli-counter-sliced.",
+      { portionHints: [{ label: "sandwich portion (2 oz)", grams: 56 }] }),
+    F("f_kraftsingle", "Kraft Singles, American", 286, 14.3, 9.5, 19.0, 0, "verified",
+      "USDA Branded 2561454 “SINGLES AMERICAN CHEESE”, Kraft Heinz (2023 label): 1 slice (21 g) = 60 kcal / 3 P / 2 C / 4 F / 0 fiber; per 100 g = ÷0.21. Retrieved 2026-08-26. The 72-count pack runs ~19 g a slice and some old listings still say 50 kcal — the 16/24-count single is what is carried.",
+      { portionHints: [{ label: "1 slice", grams: 21 }] })
   ];
   const out = {};
   list.forEach(f => out[f.id] = f);
@@ -867,6 +1087,236 @@ function seedRecipes() {
     ],
     expectedCookedG: null, actualCookedG: null,
     holdsDays: 4, freezes: false, carFriendly: false
+  });
+  /* ---- LL-634, 2026-08-26. the adult re-sent his full meal list and the bank had
+     swapped chicken in where he eats beef. These are NEW recipes — nothing he
+     has logged or edited moves. Where he stated quantities they anchor the
+     weights (the beef burrito's 8 oz drained beef + 1–2 eggs is his own
+     sentence); where he did not, the weights are announced placeholders exactly
+     like r_mashpot, and the first method line says so. freezes is set true only
+     for the classes Panel §8 already resolved (burrito mix, fajitas); nothing
+     new is claimed to freeze. */
+  add({
+    id: "r_bfburritobeef", name: "Breakfast Burrito Mix (Beef)", servings: 7, prepMin: 25,
+    ingredients: [
+      { foodId: "f_gb8515", rawGrams: 1890, note: "≈270 g raw per serving → his ~8 oz drained. Shown: 227 g cooked × (215 raw ÷ 256 cooked kcal) ≈ 270 g raw" },
+      { foodId: "f_egg", rawGrams: 525, note: "10–11 large — the middle of his 1–2 eggs per burrito" },
+      { foodId: "f_pepper", rawGrams: 200, note: "diced" },
+      { foodId: "f_onion", rawGrams: 150, note: "diced" },
+      { foodId: "f_oil", rawGrams: 15, note: "~1 tbsp" },
+      { foodId: "f_mexcheese", rawGrams: 105, note: "his “sometimes” — set to 0 for a no-cheese batch" }
+    ],
+    method: [
+      "The beef and egg amounts are the adult's own build (~8 oz drained beef, 1–2 eggs per burrito); the vegetables and oil are placeholders — edit once to match the pan.",
+      "Brown the beef, medium-high, ~8 min. DRAIN PROPERLY — the 8 oz is drained weight.",
+      "Peppers + onions in the oil, 5 min until soft. Beef back in.",
+      "Scramble the eggs separately, fold in off heat. Cheese in last, off heat, if this batch gets it.",
+      "Weigh the batch. Divide by 7. Tortilla goes on at eating time, same as the chicken mix."
+    ],
+    expectedCookedG: null, actualCookedG: null,
+    holdsDays: 4, freezes: true, carFriendly: true
+  });
+  add({
+    id: "r_steakburrito", name: "Steak Burrito Filling", servings: 4, prepMin: 20,
+    ingredients: [
+      { foodId: "f_sirloin", rawGrams: 800, note: "sliced thin" },
+      { foodId: "f_pepper", rawGrams: 200, note: "sliced" },
+      { foodId: "f_onion", rawGrams: 150, note: "sliced" },
+      { foodId: "f_oil", rawGrams: 15, note: "~1 tbsp" }
+    ],
+    method: [
+      "THESE WEIGHTS ARE A PLACEHOLDER — the adult named the meal, not the amounts. Edit once to match how you actually build it.",
+      "Screaming hot pan, sear the sirloin 90 sec a side in batches. Pull.",
+      "Peppers + onions in the same pan, 5 min. Steak back in, toss.",
+      "Weigh, divide by 4. Wrap in the tortilla of the day at eating time — the tortilla is logged separately, same as every burrito here."
+    ],
+    expectedCookedG: null, actualCookedG: null,
+    holdsDays: 4, freezes: false, carFriendly: true
+  });
+  add({
+    id: "r_shrimpburrito", name: "Shrimp Burrito Filling", servings: 4, prepMin: 15,
+    ingredients: [
+      { foodId: "f_shrimp", rawGrams: 700, note: "peeled, thawed, patted dry" },
+      { foodId: "f_pepper", rawGrams: 200, note: "sliced" },
+      { foodId: "f_onion", rawGrams: 150, note: "sliced" },
+      { foodId: "f_oil", rawGrams: 15, note: "~1 tbsp" }
+    ],
+    method: [
+      "THESE WEIGHTS ARE A PLACEHOLDER — the adult named the meal, not the amounts. Edit once to match how you actually build it.",
+      "Hot pan, peppers + onions first, 5 min. Push aside.",
+      "Shrimp 2–3 min a side until just opaque — overcooked shrimp is rubber. Toss together, season.",
+      "Weigh, divide by 4. Tortilla at eating time. Shrimp does not hold like beef — eat within 2 days."
+    ],
+    expectedCookedG: null, actualCookedG: null,
+    holdsDays: 2, freezes: false, carFriendly: false
+  });
+  add({
+    id: "r_hamscramble", name: "Ham & Egg Scramble with Avocado", servings: 1, prepMin: 10,
+    ingredients: [
+      { foodId: "f_egg", rawGrams: 150, note: "3 large" },
+      { foodId: "f_deliham", rawGrams: 85, note: "chopped" },
+      { foodId: "f_avocado", rawGrams: 68, note: "half an avocado, sliced on top" },
+      { foodId: "f_butter", rawGrams: 7, note: "~half a tbsp for the pan" }
+    ],
+    method: [
+      "THESE WEIGHTS ARE A PLACEHOLDER — the adult named the meal, not the amounts. Edit once to match the plate.",
+      "Butter in, ham 2 min until the edges color.",
+      "Eggs in, low heat, stir slow. Off heat while still glossy.",
+      "Avocado on top, salt it. Eat now — this one does not hold."
+    ],
+    expectedCookedG: null, actualCookedG: null,
+    holdsDays: 1, freezes: false, carFriendly: false
+  });
+  add({
+    id: "r_chkfajita", name: "Chicken Fajita Mix", servings: 7, prepMin: 25,
+    ingredients: [
+      { foodId: "f_chkr", rawGrams: 1400, note: "sliced thin" },
+      { foodId: "f_pepper", rawGrams: 580, note: "sliced" },
+      { foodId: "f_onion", rawGrams: 350, note: "sliced" },
+      { foodId: "f_oil", rawGrams: 25, note: "~2 tbsp" }
+    ],
+    method: [
+      "The chicken-only version of the Steak & Chicken Fajitas — the adult's stated build is chicken breast, onions, bell peppers. Vegetable weights mirror that recipe; edit if your pan differs.",
+      "Hot skillet, half the oil. Chicken ~7 min, cook through. Pull.",
+      "Rest of the oil, peppers + onions 6 min. Char, not mush.",
+      "Chicken back in, spices, toss 1 min. Weigh cooked, divide by 7."
+    ],
+    expectedCookedG: null, actualCookedG: null,
+    holdsDays: 4, freezes: true, carFriendly: true
+  });
+  add({
+    id: "r_steakstirfry", name: "Steak Stir-Fry", servings: 3, prepMin: 20,
+    ingredients: [
+      { foodId: "f_sirloin", rawGrams: 700, note: "sliced thin against the grain" },
+      { foodId: "f_broccoli", rawGrams: 400, note: "florets" },
+      { foodId: "f_pepper", rawGrams: 250, note: "sliced" },
+      { foodId: "f_onion", rawGrams: 200, note: "sliced" },
+      { foodId: "f_soy", rawGrams: 45, note: "3 tbsp" },
+      { foodId: "f_oil", rawGrams: 21, note: "~1.5 tbsp" },
+      { foodId: "f_garlic", rawGrams: 9, note: "3 cloves" }
+    ],
+    method: [
+      "The steak half of the adult's “chicken or steak stir-fry” — weights mirror the chicken version, garlic from his own ingredient list. Edit if your wok differs.",
+      "Hot wok, 10 g oil. Sirloin in a single layer, 90 sec, pull — it finishes later.",
+      "Rest of the oil: onion + pepper 3 min, broccoli 3 min with a splash of water and a lid, garlic 30 sec.",
+      "Steak back in, soy, toss 1 min. Weigh cooked, divide by 3.",
+      "Same rule as the chicken stir-fry: this does not freeze. Cook it in the half of the week it gets eaten."
+    ],
+    expectedCookedG: null, actualCookedG: null,
+    holdsDays: 4, freezes: false, carFriendly: false
+  });
+  add({
+    id: "r_butterchicken", name: "Butter Chicken", servings: 4, prepMin: 25,
+    ingredients: [
+      { foodId: "f_chkr", rawGrams: 800, note: "cubed" },
+      { foodId: "f_bcsauce", rawGrams: 400, note: "most of a jar — jars run 340–450 g, use yours" },
+      { foodId: "f_oil", rawGrams: 14, note: "1 tbsp" }
+    ],
+    method: [
+      "THESE WEIGHTS ARE A PLACEHOLDER — and the sauce entry itself is the weakest number in the library (brand assumed). Read your jar, fix the food, then trust this recipe.",
+      "Brown the cubed chicken in the oil, ~6 min.",
+      "Sauce in, simmer gently 10 min until the chicken is done through.",
+      "Weigh, divide by 4. Rice is logged separately, like every over-rice meal here."
+    ],
+    expectedCookedG: null, actualCookedG: null,
+    holdsDays: 4, freezes: false, carFriendly: false
+  });
+  add({
+    id: "r_chkpizza", name: "Chicken-Crust Pizza", servings: 4, prepMin: 40,
+    ingredients: [
+      { foodId: "f_grchk", rawGrams: 700, note: "or blitzed chicken breast — the crust" },
+      { foodId: "f_parm", rawGrams: 50, note: "into the crust" },
+      { foodId: "f_egg", rawGrams: 50, note: "1 large, binder" },
+      { foodId: "f_tomsauce", rawGrams: 150, note: "plain canned, seasoned — or your pizza sauce" },
+      { foodId: "f_mozz", rawGrams: 150, note: "on top" }
+    ],
+    method: [
+      "THESE WEIGHTS ARE A PLACEHOLDER — the adult named chicken, parmesan, mozzarella; the rest is a standard chicken-crust build. Edit once to match yours.",
+      "Oven 400°F. Mix chicken + parm + egg, press thin on parchment. Bake 20 min until set and edged brown.",
+      "Sauce, then mozzarella. Back in 8–10 min.",
+      "Cut in 4. A slice reheats better than most pizza — the crust is meat."
+    ],
+    expectedCookedG: null, actualCookedG: null,
+    holdsDays: 4, freezes: false, carFriendly: false
+  });
+  add({
+    id: "r_mexpizza", name: "Mexican Pizza", servings: 2, prepMin: 20,
+    ingredients: [
+      { foodId: "f_cb10", rawGrams: 140, note: "2 Carb Balance tortillas — swap to f_tort10 for standard" },
+      { foodId: "f_gb8515", rawGrams: 250, note: "browned, drained, seasoned" },
+      { foodId: "f_beans", rawGrams: 120, note: "drained, mashed a little" },
+      { foodId: "f_salsa", rawGrams: 80, note: "" },
+      { foodId: "f_mexcheese", rawGrams: 80, note: "" }
+    ],
+    method: [
+      "THESE WEIGHTS ARE A PLACEHOLDER — the adult named the meal, not the build. Edit once to match how you stack yours.",
+      "Oven 425°F. Tortillas straight on the rack 3 min a side until crisp.",
+      "Beef + beans on the first, salsa + cheese on top, second tortilla, more salsa + cheese.",
+      "Bake 8 min until the cheese goes. Cut in quarters; a half is a serving."
+    ],
+    expectedCookedG: null, actualCookedG: null,
+    holdsDays: 2, freezes: false, carFriendly: false
+  });
+  add({
+    id: "r_meatsauce", name: "Meat Sauce (Beef & Ragu)", servings: 5, prepMin: 30,
+    ingredients: [
+      { foodId: "f_gb8515", rawGrams: 1000, note: "browned and drained" },
+      { foodId: "f_ragu", rawGrams: 750, note: "≈ one big jar — weigh yours once and fix this" }
+    ],
+    method: [
+      "THE JAR WEIGHT IS A PLACEHOLDER — Ragu ships several jar sizes and nobody weighed yours yet. The beef is a round kilo on purpose; edit both once.",
+      "Brown the beef hard, drain properly.",
+      "Ragu in, lid half on, 15 min low. Longer is better, it only improves.",
+      "Weigh, divide by 5. Over spaghetti (logged separately) or a bowl of it on its own — both are how the adult eats it."
+    ],
+    expectedCookedG: null, actualCookedG: null,
+    holdsDays: 4, freezes: false, carFriendly: false
+  });
+  add({
+    id: "r_yogbowl", name: "Yogurt Bowl (Honey & Berries)", servings: 1, prepMin: 3,
+    ingredients: [
+      { foodId: "f_stonyfield", rawGrams: 170, note: "3/4 cup — the label serving" },
+      { foodId: "f_honey", rawGrams: 15, note: "~2 tsp" },
+      { foodId: "f_strawb", rawGrams: 70, note: "halved" },
+      { foodId: "f_blueb", rawGrams: 70, note: "" }
+    ],
+    method: [
+      "Fruit and honey amounts are placeholders around the yogurt's own label serving — edit once to match your bowl. Swap either berry for the other freely; they are 25 kcal apart per 100 g.",
+      "Yogurt, honey over, berries on top. Done."
+    ],
+    expectedCookedG: null, actualCookedG: null,
+    holdsDays: 1, freezes: false, carFriendly: false
+  });
+  add({
+    id: "r_mikesandwich", name: "the minor's Ham Sandwich", servings: 1, prepMin: 5,
+    ingredients: [
+      { foodId: "f_bread", rawGrams: 54, note: "2 slices" },
+      { foodId: "f_bfham", rawGrams: 56, note: "Black Forest, ~2 oz — pile it to taste and fix this once" },
+      { foodId: "f_kraftsingle", rawGrams: 21, note: "1 Kraft Single" },
+      { foodId: "f_mayo", rawGrams: 14, note: "1 tbsp" },
+      { foodId: "f_romaine", rawGrams: 15, note: "a leaf" }
+    ],
+    method: [
+      "the adult's stated build (2026-08-26): Black Forest ham, lettuce, mayo, Kraft American. The ham and mayo amounts are placeholders around common portions — weigh one sandwich once and fix them.",
+      "Build it, halve it, bag it. School lunch — goes with a piece of fruit, which is logged separately."
+    ],
+    expectedCookedG: null, actualCookedG: null,
+    holdsDays: 1, freezes: false, carFriendly: true
+  });
+  add({
+    id: "r_mikepancakes", name: "the minor's Pancakes & Eggs", servings: 1, prepMin: 15,
+    ingredients: [
+      { foodId: "f_pancake", rawGrams: 114, note: "3 × 4\" pancakes — count yours" },
+      { foodId: "f_egg", rawGrams: 100, note: "2 large" },
+      { foodId: "f_butter", rawGrams: 7, note: "for the pan" }
+    ],
+    method: [
+      "COUNTS ARE A PLACEHOLDER — and the pancake food itself is estimated until someone says whether they come from a mix or from scratch. Fix the food, then this recipe is right.",
+      "Pancakes per the mix. Eggs however the minor takes them.",
+      "Syrup is not in this recipe — if he uses it, log it, it is not free."
+    ],
+    expectedCookedG: null, actualCookedG: null,
+    holdsDays: 1, freezes: false, carFriendly: false
   });
   return r;
 }
@@ -1275,7 +1725,7 @@ function genTopUpPick(pool, want, usedToday, dateStr, firstSeen) {
    under target: grow a portion already on the plate toward its own cap. Growing
    a serving is honest — it is more of a meal they are already having — where a
    duplicate row is not. Returns the kcal it managed to add. */
-function genGrowExisting(placed, gapKcal, want) {
+function genGrowExisting(placed, gapKcal, want, maxStepKcal) {
   const order = placed.slice().sort((a, b) => {
     const pa = { kind: a.item.source === "recipe" ? "recipe" : "food", id: a.item.refId };
     const pb = { kind: b.item.source === "recipe" ? "recipe" : "food", id: b.item.refId };
@@ -1288,6 +1738,11 @@ function genGrowExisting(placed, gapKcal, want) {
     const before = resolveItem(row.item);
     if (!before || !(before.macros.kcal > 0)) continue;
     if (row.item.servings != null) {
+      /* the smallest possible step is a quarter serving — if even that blows
+         past the caller's precision budget, this row cannot help, try the next
+         (LL-634: the finishing pass needs steps smaller than the gap; the minor
+         path passes no budget and keeps its overshoot-toward-safe behavior) */
+      if (maxStepKcal && before.macros.kcal / row.item.servings * 0.25 > maxStepKcal) continue;
       const room = (cap.servings || 0) - row.item.servings;
       if (!(room >= 0.25)) continue;
       const add = Math.min(room, Math.max(0.25, Math.round(gapKcal / (before.macros.kcal / row.item.servings) * 4) / 4));
@@ -1296,11 +1751,49 @@ function genGrowExisting(placed, gapKcal, want) {
       const room = (cap.grams || 0) - row.item.grams;
       if (!(room >= 5)) continue;
       const per100 = before.macros.kcal / (row.item.grams / 100);
+      if (maxStepKcal && per100 * 0.05 > maxStepKcal) continue;   // 5 g is the smallest step
       const add = Math.min(room, Math.max(5, Math.round(gapKcal / per100 * 100 / 5) * 5));
       row.item.grams = row.item.grams + add;
     }
     const after = resolveItem(row.item);
     return after ? after.macros.kcal - before.macros.kcal : 0;
+  }
+  return 0;
+}
+
+/* LL-634: the mirror of genGrowExisting, for a day the quarter-serving
+   rounding of the slot fill left OVER target — which nothing ever corrected.
+   Shrinks the row that best matches the SURPLUS macros, in quarter-serving /
+   5 g steps, never below a quarter serving or 5 g, honoring the same
+   precision budget as the grow. Adults only at the call site — a minor's day
+   is never reduced. */
+function genShrinkExisting(placed, overKcal, surplus, maxStepKcal) {
+  const order = placed.slice().sort((a, b) => {
+    const pa = { kind: a.item.source === "recipe" ? "recipe" : "food", id: a.item.refId };
+    const pb = { kind: b.item.source === "recipe" ? "recipe" : "food", id: b.item.refId };
+    return genFitScore(pa, surplus) - genFitScore(pb, surplus);
+  });
+  for (const row of order) {
+    const pick = { kind: row.item.source === "recipe" ? "recipe" : "food", id: row.item.refId };
+    if (genIsDense(pick)) continue;
+    const before = resolveItem(row.item);
+    if (!before || !(before.macros.kcal > 0)) continue;
+    if (row.item.servings != null) {
+      if (maxStepKcal && before.macros.kcal / row.item.servings * 0.25 > maxStepKcal) continue;
+      const room = row.item.servings - 0.25;
+      if (!(room >= 0.25)) continue;
+      const drop = Math.min(room, Math.max(0.25, Math.round(overKcal / (before.macros.kcal / row.item.servings) * 4) / 4));
+      row.item.servings = Math.round((row.item.servings - drop) * 4) / 4;
+    } else {
+      const per100 = before.macros.kcal / (row.item.grams / 100);
+      if (maxStepKcal && per100 * 0.05 > maxStepKcal) continue;
+      const room = row.item.grams - 5;
+      if (!(room >= 5)) continue;
+      const drop = Math.min(room, Math.max(5, Math.round(overKcal / per100 * 100 / 5) * 5));
+      row.item.grams = row.item.grams - drop;
+    }
+    const after = resolveItem(row.item);
+    return after ? before.macros.kcal - after.macros.kcal : 0;
   }
   return 0;
 }
@@ -1502,9 +1995,13 @@ function generateWeek(p, weekId, opts) {
            than the hole it is filling — a quarter serving is a quarter serving.
            Adding it anyway put a Sunday 184 kcal over target. An adult simply
            does not get that row; the day is a little under and that is the
-           better answer. A MINOR does get it, because for a minor "a little
-           under" is a deficit and overshooting is the safe direction. */
-        if (!p.isMinor && got.macros.kcal > need.kcal * 1.6) break;
+           better answer — the finishing pass below closes the gap in small
+           steps instead. The bound is absolute (2.5% of the day) rather than
+           relative to the gap, because 1.6x of a big gap landed a day 3.6%
+           over — past the 3% the lands-on-calories spec allows. A MINOR still
+           gets the row, because for a minor "a little under" is a deficit and
+           overshooting is the safe direction. */
+        if (!p.isMinor && got.macros.kcal > need.kcal + (tg.kcal || 0) * 0.025) break;
         usedToday[pick.kind + ":" + pick.id] = true;
         useCount[pick.kind + ":" + pick.id] = (useCount[pick.kind + ":" + pick.id] || 0) + 1;
         if (pick.kind === "recipe" && !firstSeen[pick.id]) firstSeen[pick.id] = d;
@@ -1515,6 +2012,33 @@ function generateWeek(p, weekId, opts) {
         /* nothing moved: the pool is exhausted and every portion is at its cap.
            Stop rather than spin — the preview will show the day short and say so. */
         if (dayTotal().kcal <= kcalBefore + 0.5) break;
+      }
+      /* --- finish the day (LL-634) ---
+         The add-a-row loop above stops for an adult once the gap is under 4%,
+         because a new ROW that small overshoots. But the spec for this screen
+         is "lands on calories, every day" at 3% — and with a wider recipe bank
+         the pool can now leave a day in the 3–4% crack the old bank never hit.
+         Growing a portion already on the plate closes it in 5 g / quarter-serving
+         steps without adding anything new. Minors were never allowed the gap. */
+      if (!p.isMinor) {
+        for (let pass = 0; pass < 6; pass++) {
+          const t = dayTotal();
+          const gapK = (tg.kcal || 0) - t.kcal;      // positive = under target
+          if (Math.abs(gapK) <= (tg.kcal || 0) * 0.015) break;
+          if (gapK > 0) {
+            const need = { kcal: gapK, p: Math.max((tg.protein || 0) - t.p, 0),
+                           c: Math.max((tg.carbs || 0) - t.c, 0), f: Math.max((tg.fat || 0) - t.f, 0) };
+            /* precision budget: a step may not blow past the target by more
+               than the gap itself allows — steps bigger than 1.6x the gap are
+               how the day got over target in the first place */
+            if (!(genGrowExisting(placed, gapK, need, gapK * 1.6) > 0)) break;
+          } else {
+            const over = -gapK;
+            const surplus = { kcal: over, p: Math.max(t.p - (tg.protein || 0), 0),
+                              c: Math.max(t.c - (tg.carbs || 0), 0), f: Math.max(t.f - (tg.fat || 0), 0) };
+            if (!(genShrinkExisting(placed, over, surplus, over * 1.6) > 0)) break;
+          }
+        }
       }
     }
 
@@ -1862,7 +2386,8 @@ function groceryLineFor(foodId, rawG, weekId) {
   if (!f) return null;
   const haveG = pantryGrams(foodId), needG = Math.max(0, rawG - haveG);
   return {
-    foodId, name: f.name, aisle: f.aisle || "Other", rawG, haveG, needG,
+    foodId, name: f.name, aisle: f.aisle || "Other", store: f.store || DEFAULT_STORE,
+    rawG, haveG, needG,
     purchaseUnit: purchaseUnitFor(f, needG), have: haveG > 0,
     checked: false, perishBy: perishByFor(f, weekId), removed: false
   };
@@ -1887,7 +2412,12 @@ function generateGrocery(weekId) {
     out.push(Object.assign(groceryLineFor(fid, rawG, weekId), { checked: unchanged ? !!old.checked : false }));
     seen[fid] = true;
   }
-  for (const l of prev) if (!seen[l.foodId]) out.push(Object.assign({}, l, { removed: true, rawG: 0, needG: 0 }));
+  for (const l of prev) {
+    /* LL-637: the plan cannot remove a hand-added line; regenerating after the
+       user took one off is the moment it actually leaves the list */
+    if (l.manual) { if (!l.removed) out.push(l); continue; }
+    if (!seen[l.foodId]) out.push(Object.assign({}, l, { removed: true, rawG: 0, needG: 0 }));
+  }
   out.sort((a, b) => a.name.localeCompare(b.name));
   S.grocery[weekId] = out;
   save();
@@ -1900,6 +2430,28 @@ function generateGrocery(weekId) {
    hands it over as a file. Text, not PDF: it opens in Notes, prints, pastes
    into a message, and needs no library, which constraint 1 would not allow.
    ------------------------------------------------------------ */
+/* LL-635. One grouping for every list renderer: store → aisle, stores in
+   STORES order then extras, aisles in AISLES order then extras. A line saved
+   before stores existed falls back to its food's store, then the default, so
+   an old list regroups itself without a migration. The store layer only shows
+   when the lines actually span more than one store — an all-Sam's list looks
+   exactly as it always did. */
+function lineStore(l) {
+  return l.store || (S.foods[l.foodId] && S.foods[l.foodId].store) || DEFAULT_STORE;
+}
+function groupStoreAisle(lines) {
+  const byStore = {};
+  for (const l of lines) { const s = lineStore(l); (byStore[s] || (byStore[s] = [])).push(l); }
+  const stores = STORES.filter(s => byStore[s])
+    .concat(Object.keys(byStore).filter(s => STORES.indexOf(s) < 0).sort());
+  return stores.map(store => {
+    const byAisle = {};
+    for (const l of byStore[store]) (byAisle[l.aisle] || (byAisle[l.aisle] = [])).push(l);
+    const aisles = AISLES.filter(a => byAisle[a])
+      .concat(Object.keys(byAisle).filter(a => AISLES.indexOf(a) < 0).sort());
+    return { store, aisles: aisles.map(a => ({ aisle: a, lines: byAisle[a] })) };
+  });
+}
 function groceryText(lines, title, sub, foot) {
   const live = lines.filter(l => !l.removed && l.needG > 0);
   const out = ["LEANLINE — GROCERY LIST", title];
@@ -1909,15 +2461,17 @@ function groceryText(lines, title, sub, foot) {
     out.push("Nothing to buy. Either nothing is planned for this, or the");
     out.push("pantry already covers all of it.", "");
   }
-  const byAisle = {};
-  for (const l of live) (byAisle[l.aisle] || (byAisle[l.aisle] = [])).push(l);
-  const known = AISLES.filter(a => byAisle[a] && byAisle[a].length);
-  const extra = Object.keys(byAisle).filter(a => AISLES.indexOf(a) < 0).sort();
-  for (const aisle of known.concat(extra)) {
+  const groups = groupStoreAisle(live);
+  const multiStore = groups.length > 1;
+  for (const g of groups) {
+    if (multiStore) out.push("======== " + g.store.toUpperCase() + " ========", "");
+    for (const ga of g.aisles) {
+    const aisle = ga.aisle;
     out.push(aisle.toUpperCase());
-    for (const l of byAisle[aisle]) {
+    for (const l of ga.lines) {
       const f = S.foods[l.foodId];
-      out.push("  [ ] " + l.name + " — " + num(l.needG) + " g" +
+      const q = groceryQty(l);
+      out.push("  [ ] " + l.name + (q ? " — " + q : "") +
         (l.purchaseUnit ? "   (" + l.purchaseUnit + ")" : ""));
       if (l.haveG > 0) out.push("        pantry already holds " + num(l.haveG) + " g");
       if (l.perishBy) out.push("        use by " + fmtDate(l.perishBy));
@@ -1926,10 +2480,74 @@ function groceryText(lines, title, sub, foot) {
       if (f && f.confidence !== "verified") out.push("        macros are " + f.confidence.toUpperCase());
     }
     out.push("");
+    }
   }
   if (foot) out.push("------------------------------------------------", foot, "");
   out.push("Built on this device. Nothing about it left the phone.");
   return out.join("\n");
+}
+/* LL-636. The same list as a printable page. The .txt relies on whatever opens
+   it; this is a self-contained HTML document — inline styles, system fonts, no
+   script tag, not one network reference, so it obeys the same rules as the app
+   that wrote it. Black on white at print sizes on purpose: a grocery list is
+   read at arm's length in a trolley, and the printout has no dark theme.
+   The Print button is plain onclick and hides itself under @media print. */
+function groceryPrintHTML(lines, title, sub, foot) {
+  const live = lines.filter(l => !l.removed && l.needG > 0);
+  const groups = groupStoreAisle(live);
+  const multiStore = groups.length > 1;
+  let b = "";
+  if (!live.length) b += "<p>Nothing to buy. Either nothing is planned for this, or the pantry already covers all of it.</p>";
+  for (const g of groups) {
+    if (multiStore) b += "<h2>" + esc(g.store) + "</h2>";
+    for (const ga of g.aisles) {
+      b += "<h3>" + esc(ga.aisle) + "</h3><ul>";
+      for (const l of ga.lines) {
+        const f = S.foods[l.foodId];
+        const q = groceryQty(l);
+        b += '<li><span class="box"></span><span class="it"><span class="nm">' + esc(l.name) + "</span>" +
+          (q || l.purchaseUnit ? ' <span class="qty">' + esc(q) + (l.purchaseUnit ? " · " + esc(l.purchaseUnit) : "") + "</span>" : "");
+        const notes = [];
+        if (l.haveG > 0) notes.push("pantry already holds " + num(l.haveG) + " g");
+        if (l.perishBy) notes.push("use by " + fmtDate(l.perishBy));
+        if (f && f.perishNote) notes.push(esc(f.perishNote));
+        /* constraint 10: a number never travels without its confidence */
+        if (f && f.confidence !== "verified") notes.push('<span class="conf">macros ' + f.confidence.toUpperCase() + "</span>");
+        if (notes.length) b += '<br><span class="note">' + notes.join(" · ") + "</span>";
+        b += "</span></li>";
+      }
+      b += "</ul>";
+    }
+  }
+  if (foot) b += '<p class="foot">' + esc(foot) + "</p>";
+  return "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">" +
+    '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+    "<title>LEANLINE grocery — " + esc(title) + "</title><style>" +
+    'body{font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#111;background:#fff;margin:24px auto;max-width:640px;padding:0 12px;font-size:17px;line-height:1.45}' +
+    "h1{font-size:24px;margin:0 0 2px}" +
+    ".sub{color:#444;margin:0 0 14px;font-size:15px}" +
+    "h2{font-size:20px;margin:22px 0 2px;padding-bottom:3px;border-bottom:3px solid #111}" +
+    "h3{font-size:14px;letter-spacing:.08em;text-transform:uppercase;color:#333;margin:16px 0 4px}" +
+    "ul{list-style:none;margin:0;padding:0}" +
+    "li{display:flex;gap:12px;align-items:flex-start;padding:7px 0;border-bottom:1px solid #ccc;break-inside:avoid}" +
+    ".box{flex:none;width:20px;height:20px;border:2px solid #111;border-radius:4px;margin-top:2px}" +
+    ".nm{font-weight:600}" +
+    ".qty{font-variant-numeric:tabular-nums;white-space:nowrap}" +
+    ".note{font-size:13.5px;color:#444}" +
+    ".conf{border:1.5px solid #555;border-radius:3px;padding:0 4px;font-size:11.5px;letter-spacing:.04em}" +
+    ".foot{margin-top:18px;padding-top:8px;border-top:2px solid #111;font-size:14px}" +
+    ".built{color:#666;font-size:12.5px;margin-top:14px}" +
+    ".noprint{display:block;width:100%;padding:12px;margin:0 0 14px;font-size:17px;font-weight:600;background:#111;color:#fff;border:none;border-radius:8px}" +
+    "@media print{.noprint{display:none}body{margin:0;max-width:none;padding:0}}" +
+    "</style></head><body>" +
+    '<button class="noprint" onclick="window.print()">Print this list</button>' +
+    "<h1>Grocery list — " + esc(title) + "</h1>" +
+    (sub ? '<p class="sub">' + esc(sub) + "</p>" : "") +
+    b +
+    '<p class="built">Built on this device. Nothing about it left the phone.</p>' +
+    /* closing tags split: pwa/build.mjs injects at the FIRST body-close token
+       it finds in the whole file, and an intact one here would catch it */
+    "</bo" + "dy></ht" + "ml>";
 }
 /* The one place a file leaves the app. Used by the JSON export too. */
 function downloadFile(filename, text, mime) {
@@ -2072,8 +2690,52 @@ function tortillaGuard(weekId) {
   return { owner, consequence };
 }
 
-function groceryLine(weekId, foodId) {
-  return (S.grocery[weekId] || []).find(l => l.foodId === foodId) || null;
+function groceryLine(weekId, key) {
+  /* LL-637: hand-added lines are keyed by lineId; plan lines by foodId */
+  return (S.grocery[weekId] || []).find(l => l.lineId === key || (!l.lineId && l.foodId === key)) || null;
+}
+/* LL-637. The shop includes things no macro tracks — soda, water, paper towels —
+   and extras beyond the plan. A hand-added line: from the library at grams, or
+   free text with whatever quantity words mean something ("2 cases"). It survives
+   regeneration untouched, because the plan did not put it there and the plan
+   cannot take it away. No pantry subtraction either — a hand-added line means
+   "buy this", not "buy what's left of this". */
+function addManualFood(weekId, foodId, grams) {
+  const f = S.foods[foodId];
+  if (!f || !(grams > 0)) return null;
+  if (!S.grocery[weekId]) generateGrocery(weekId);
+  const base = groceryLineFor(foodId, grams, weekId);
+  const l = Object.assign(base, { lineId: uid("gl"), manual: true, haveG: 0, needG: grams, have: false, purchaseUnit: purchaseUnitFor(f, grams) });
+  S.grocery[weekId].push(l);
+  save();
+  return l;
+}
+function addManualText(weekId, name, qtyText) {
+  name = (name || "").trim();
+  if (!name) return null;
+  if (!S.grocery[weekId]) generateGrocery(weekId);
+  const l = {
+    lineId: uid("gl"), manual: true, foodId: null, name, aisle: "Other", store: DEFAULT_STORE,
+    rawG: 0, haveG: 0, needG: 1, qtyText: (qtyText || "").trim() || null,
+    purchaseUnit: null, have: false, checked: false, perishBy: null, removed: false
+  };
+  S.grocery[weekId].push(l);
+  save();
+  return l;
+}
+function removeManualLine(weekId, lineId) {
+  const l = groceryLine(weekId, lineId);
+  if (!l || !l.manual) return false;
+  l.removed = true;            // kept, not deleted — the list may already be in a pocket
+  save();
+  return true;
+}
+/* What to print beside a line's name: grams for anything weighed, the user's
+   own words for a free-text line, nothing when there is nothing to say. */
+function groceryQty(l) {
+  if (l.qtyText) return l.qtyText;
+  if (l.foodId) return num(l.needG) + " g";
+  return "";
 }
 /* "Checking an item optionally writes it to pantry" — optionally, so it is a
    separate deliberate tap, never a side effect of ticking the box. */
@@ -3243,7 +3905,8 @@ function viewPlan() {
   h += '<button class="btn full tall" data-act="genOpen" style="margin-top:.7rem">✦ Fill this week automatically…</button>';
   h += '<div class="two" style="margin-top:.5rem">' +
     '<button class="btn" data-act="copyDayOpen">Copy a day…</button>' +
-    '<button class="btn" data-act="copyWeekOpen">Copy week forward…</button></div>';
+    '<button class="btn" data-act="copyWeekOpen">Copy week forward…</button>' +
+    '<button class="btn" data-act="shareWeek">Share this week…</button></div>';
   h += '<button class="btn primary full tall" data-act="groceryOpen" style="margin-top:.5rem">Generate grocery list</button>';
 
   if (UI.undo) {
@@ -4200,21 +4863,25 @@ function viewGrocery() {
   const removed = list.filter(l => l.removed);
   h += '<p class="muted" style="margin:.35rem 0 .6rem;font-size:.9375rem">' + live.length + ' to buy · ' +
     live.filter(l => l.checked).length + ' ticked</p>' +
-    '<button class="btn full" data-act="groceryGen">Regenerate from the plan</button></div>';
+    '<button class="btn full" data-act="groceryGen">Regenerate from the plan</button>' +
+    '<button class="btn full" data-act="groceryAddOpen" style="margin-top:.4rem">＋ Add something else to the list</button></div>';
   h += viewGroceryDownload(wid, true);
 
   const guard = tortillaGuard(wid);
-  const byAisle = {};
-  for (const l of live) (byAisle[l.aisle] || (byAisle[l.aisle] = [])).push(l);
-  const known = AISLES.filter(a => byAisle[a] && byAisle[a].length);
-  const extra = Object.keys(byAisle).filter(a => AISLES.indexOf(a) < 0).sort();
-  for (const aisle of known.concat(extra)) {
-    h += '<div class="card"><div class="eyebrow">' + esc(aisle) + '</div><div style="margin-top:.5rem">';
-    for (const l of byAisle[aisle]) h += groceryRow(wid, l, guard);
+  /* LL-635: store → aisle. The store heading only appears when the week's
+     lines actually span more than one store. */
+  const groups = groupStoreAisle(live);
+  const multiStore = groups.length > 1;
+  for (const g of groups) {
+    if (multiStore) h += '<h2 class="eyebrow" style="margin:.9rem 0 .3rem">' + esc(g.store) + '</h2>';
+    for (const ga of g.aisles) {
+    h += '<div class="card"><div class="eyebrow">' + esc(ga.aisle) + '</div><div style="margin-top:.5rem">';
+    for (const l of ga.lines) h += groceryRow(wid, l, guard);
     /* the consequence is stated ONCE, under the aisle that holds the tortillas */
-    if (guard && guard.consequence && byAisle[aisle].some(l => guard.owner[l.foodId]))
+    if (guard && guard.consequence && ga.lines.some(l => guard.owner[l.foodId]))
       h += '<p class="perish" style="margin-left:0"><b>Two kinds of tortilla this week. Label the bags.</b> ' + esc(guard.consequence) + '</p>';
     h += '</div></div>';
+    }
   }
 
   h += viewProteinCheck(wid);
@@ -4236,41 +4903,50 @@ function viewGroceryDownload(weekId, haveWeek) {
   const dates = weekDates(weekId);
   const pick = dates.includes(UI.date) ? UI.date : dates[0];
   let h = '<div class="card"><div class="eyebrow">Take it to the shop</div>' +
-    '<p class="muted" style="font-size:.875rem;margin:.35rem 0 .6rem">Downloads a plain text list, aisle by aisle, with a box to tick beside every item. It opens and prints anywhere and never leaves the phone unless you send it.</p>';
+    '<p class="muted" style="font-size:.875rem;margin:.35rem 0 .6rem">Two ways out: a plain text list that opens anywhere, or a printable page with big type and a Print button, grouped by store. Neither leaves the phone unless you send it.</p>';
   if (haveWeek) {
-    h += '<button class="btn full tall" data-act="groceryDownload" data-scope="week">⤓ Download the whole week</button>' +
+    h += '<button class="btn full tall" data-act="groceryDownload" data-scope="week">⤓ Download the whole week (text)</button>' +
+      '<button class="btn full tall" data-act="groceryDownload" data-scope="week" data-fmt="print">⎙ Printable page — whole week</button>' +
       '<div class="rule"></div>';
   }
   h += '<div class="field"><label for="gdDay">One day instead</label><select id="gdDay">' +
     dates.map(d => '<option value="' + d + '"' + (d === pick ? " selected" : "") + '>' + esc(fmtDate(d)) + '</option>').join("") +
     '</select></div>' +
-    '<button class="btn full tall" data-act="groceryDownload" data-scope="day">⤓ Download that day</button>' +
+    '<button class="btn full tall" data-act="groceryDownload" data-scope="day">⤓ Download that day (text)</button>' +
+    '<button class="btn full tall" data-act="groceryDownload" data-scope="day" data-fmt="print">⎙ Printable page — that day</button>' +
     '<p class="muted" style="font-size:.8125rem;margin:.4rem 0 0">A day is shopped at exactly what its meals call for. The week is shopped at the batch multipliers, which round up to whole cooks.</p>' +
     '</div>';
   return h;
 }
 function groceryRow(weekId, l, guard) {
-  const f = S.foods[l.foodId];
-  const owners = guard && guard.owner[l.foodId];
+  const f = l.foodId ? S.foods[l.foodId] : null;
+  const key = l.lineId || l.foodId;
+  const owners = guard && l.foodId && guard.owner[l.foodId];
+  const q = groceryQty(l);
   let h = '<div style="padding:.25rem 0">' +
     '<label class="tap" style="gap:.6rem;align-items:flex-start">' +
-    '<input type="checkbox" data-act="groceryTick" data-id="' + l.foodId + '"' + (l.checked ? " checked" : "") +
-    ' aria-label="' + esc(l.name) + ', ' + num(l.needG) + ' grams, in the trolley">' +
+    '<input type="checkbox" data-act="groceryTick" data-id="' + esc(key) + '"' + (l.checked ? " checked" : "") +
+    ' aria-label="' + esc(l.name) + (q ? ', ' + esc(q) : '') + ', in the trolley">' +
     '<span class="grow' + (l.checked ? " muted" : "") + '"><span class="nm">' + esc(l.name) +
-    (owners ? ' <span class="owner">' + esc(owners.join(" + ").toUpperCase()) + ' ONLY</span>' : '') + '</span><br>' +
-    '<span class="sub num">' + num(l.needG) + ' g' +
-    (l.purchaseUnit ? ' · ' + esc(l.purchaseUnit) : '') +
-    (l.haveG > 0 ? ' · pantry has ' + num(l.haveG) + ' g' : '') +
-    '</span></span>' +
+    (owners ? ' <span class="owner">' + esc(owners.join(" + ").toUpperCase()) + ' ONLY</span>' : '') +
+    (l.manual ? ' <span class="owner">ADDED BY HAND</span>' : '') + '</span>' +
+    (q || l.purchaseUnit || l.haveG > 0 ? '<br><span class="sub num">' + esc(q) +
+      (l.purchaseUnit ? (q ? ' · ' : '') + esc(l.purchaseUnit) : '') +
+      (l.haveG > 0 ? ' · pantry has ' + num(l.haveG) + ' g' : '') +
+      '</span>' : '') + '</span>' +
     (f ? '<span class="conf ' + f.confidence + '">' + f.confidence.toUpperCase() + '</span>' : '') +
     '</label>';
+  if (l.manual) {
+    h += '<button class="btn sm" data-act="groceryManualRm" data-id="' + esc(l.lineId) + '" style="margin:.1rem 0 .4rem 2.2rem">' +
+      'Take ' + esc(l.name) + ' off the list</button>';
+  }
   if (l.perishBy || (f && f.perishNote)) {
     h += '<p class="perish">' +
       (l.perishBy ? '<b>Use by ' + esc(fmtDate(l.perishBy)) + '.</b> ' : '') +
       (f && f.perishNote ? esc(f.perishNote) : '') + '</p>';
   }
-  if (l.checked) {
-    h += '<button class="btn sm" data-act="groceryStock" data-id="' + l.foodId + '" style="margin:.1rem 0 .4rem 2.2rem">' +
+  if (l.checked && l.foodId) {
+    h += '<button class="btn sm" data-act="groceryStock" data-id="' + esc(key) + '" style="margin:.1rem 0 .4rem 2.2rem">' +
       'Put ' + num(l.needG) + ' g in the pantry</button>';
   }
   return h + '</div>';
@@ -4873,6 +5549,23 @@ function updatePickTotal() {
   if (node && r) node.textContent = R(r.macros.kcal) + " kcal · " + R1(r.macros.p) + " g P";
 }
 
+/* ---------- LL-637: add a line to the grocery list by hand ---------- */
+function sheetGroceryAdd() {
+  const foods = Object.values(S.foods).slice().sort((a, b) => a.name.localeCompare(b.name));
+  let h = sheetHead("Add to the grocery list", "For anything the meal plan does not put there. It stays on the list until you take it off.");
+  h += '<div class="field"><label for="gaFood">From the food library</label><select id="gaFood">' +
+    foods.map(f => '<option value="' + esc(f.id) + '">' + esc(f.name) + '</option>').join("") +
+    '</select></div>' +
+    numField("gaGrams", "Grams to buy", "") +
+    '<button class="btn primary full tall" data-act="groceryAddFood" style="margin-top:.5rem">Add it</button>' +
+    '<div class="rule"></div>' +
+    '<div class="field"><label for="gaText">Or just type it</label><input id="gaText" placeholder="Bottled water, paper towels, …"></div>' +
+    '<div class="field"><label for="gaQty">Quantity, in your words (optional)</label><input id="gaQty" placeholder="2 cases"></div>' +
+    '<button class="btn primary full tall" data-act="groceryAddText" style="margin-top:.5rem">Add it</button>' +
+    '<p class="muted" style="font-size:.8125rem;margin:.4rem 0 0">A typed line lands under Other — no macros, no pantry math, just a thing to buy.</p>';
+  openSheet(h);
+}
+
 /* ---------- food detail / new food ---------- */
 function sheetFood(id) {
   const f = id ? S.foods[id] : null;
@@ -4891,6 +5584,9 @@ function sheetFood(id) {
     '<div class="field"><label for="fdSrc">Source</label><input id="fdSrc" value="' + esc(v.source || "") + '" placeholder="USDA FDC, package label, …"></div>' +
     '<div class="field"><label for="fdAisle">Grocery aisle</label><select id="fdAisle">' +
     AISLES.map(a => '<option value="' + a + '"' + ((v.aisle || "Other") === a ? " selected" : "") + '>' + a + '</option>').join("") +
+    '</select></div>' +
+    '<div class="field"><label for="fdStore">Store</label><select id="fdStore">' +
+    STORES.map(s => '<option value="' + s + '"' + ((v.store || DEFAULT_STORE) === s ? " selected" : "") + '>' + s + '</option>').join("") +
     '</select></div>';
   if (f && f.noAtwater) h += '<div class="safety" style="margin-top:.6rem"><b>Do not recompute this from macros.</b> Most of its carbohydrate is fiber, which FDA labeling nets out of the calorie count. Use the label calories or you double-count the tortilla.</div>';
   h += '<div style="height:.7rem"></div><button class="btn primary full tall" data-act="saveFood" data-id="' + (id || "") + '">Save food</button>';
@@ -5230,13 +5926,15 @@ const ACTS = {
   groceryOpen() { const wid = UI.weekStart || (UI.weekStart = weekIdOf(UI.date)); if (!S.grocery[wid]) generateGrocery(wid); UI.tab = "grocery"; render(); },
   groceryDownload(t) {
     const wid = UI.weekStart || (UI.weekStart = weekIdOf(UI.date));
+    /* LL-636: same lines, two containers — plain text, or a printable page */
+    const asPrint = t.dataset.fmt === "print";
     if (t.dataset.scope === "day") {
       const sel = el("gdDay");
       const d = (sel && sel.value) || UI.date;
       const lines = linesFromNeed(needForDates([d]), wid);
-      downloadFile("leanline-grocery-" + d + ".txt",
-        groceryText(lines, fmtDate(d),
-          shoppingFor() + " · from that day's meals, pantry stock subtracted"));
+      const sub = shoppingFor() + " · from that day's meals, pantry stock subtracted";
+      if (asPrint) downloadFile("leanline-grocery-" + d + ".html", groceryPrintHTML(lines, fmtDate(d), sub), "text/html;charset=utf-8");
+      else downloadFile("leanline-grocery-" + d + ".txt", groceryText(lines, fmtDate(d), sub));
       toast("Downloaded " + fmtDate(d));
       return;
     }
@@ -5247,18 +5945,40 @@ const ACTS = {
         " g the week's meals call for (" + (c.variancePct >= 0 ? "+" : "−") + R1(Math.abs(c.variancePct)) +
         "%). More than 10% light usually means something fell off the list."
       : null;
-    downloadFile("leanline-grocery-week-" + wid + ".txt",
-      groceryText(list, "Week of " + weekLabel(wid),
-        shoppingFor() + " · at the batch multipliers in the plan, pantry stock subtracted", foot));
+    const wTitle = "Week of " + weekLabel(wid);
+    const wSub = shoppingFor() + " · at the batch multipliers in the plan, pantry stock subtracted";
+    if (asPrint) downloadFile("leanline-grocery-week-" + wid + ".html", groceryPrintHTML(list, wTitle, wSub, foot), "text/html;charset=utf-8");
+    else downloadFile("leanline-grocery-week-" + wid + ".txt", groceryText(list, wTitle, wSub, foot));
     toast("Downloaded the week");
   },
   groceryGen() { const n = generateGrocery(UI.weekStart); render(); toast(n.filter(l => !l.removed && l.needG > 0).length + " items to buy"); },
   groceryTick(t) { toggleGroceryCheck(UI.weekStart, t.dataset.id); render(); },
   groceryStock(t) {
     const l = groceryLine(UI.weekStart, t.dataset.id);
-    if (!l) return;
+    if (!l || !l.foodId) return;
     stockPantry(l.foodId, l.needG);
     render(); toast(l.name + " recorded in the pantry");
+  },
+  groceryAddOpen() { sheetGroceryAdd(); },
+  groceryAddFood() {
+    const fid = el("gaFood").value, grams = parseFloat(el("gaGrams").value);
+    if (!(grams > 0)) { alert("How many grams? A hand-added food needs an amount."); return; }
+    const wid = UI.weekStart || (UI.weekStart = weekIdOf(UI.date));
+    const l = addManualFood(wid, fid, grams);
+    if (!l) return;
+    closeSheet(); render(); toast(l.name + " added to the list");
+  },
+  groceryAddText() {
+    const wid = UI.weekStart || (UI.weekStart = weekIdOf(UI.date));
+    const l = addManualText(wid, el("gaText").value, el("gaQty").value);
+    if (!l) { alert("Give it a name."); return; }
+    closeSheet(); render(); toast(l.name + " added to the list");
+  },
+  groceryManualRm(t) {
+    const l = groceryLine(UI.weekStart, t.dataset.id);
+    if (!l) return;
+    removeManualLine(UI.weekStart, t.dataset.id);
+    render(); toast(l.name + " taken off the list");
   },
   thawTick(t) { toggleThaw(UI.weekStart, t.dataset.k); render(); },
   batchMult(t) {
@@ -5420,6 +6140,7 @@ const ACTS = {
       isCustom: prev ? prev.isCustom : true,
       portionHints: prev ? prev.portionHints : [],
       aisle: (el("fdAisle") && el("fdAisle").value) || (prev && prev.aisle) || "Other",
+      store: (el("fdStore") && el("fdStore").value) || (prev && prev.store) || DEFAULT_STORE,
       countUnit: prev ? prev.countUnit : undefined,
       liquid: prev ? prev.liquid : undefined,
       pack: prev ? prev.pack : undefined,
@@ -5467,6 +6188,45 @@ const ACTS = {
     save(); noteWrite(5); closeSheet(); UI.foodTab = "recipes"; render(); toast("Recipe saved");
   },
 
+  /* LL-639. Hand the finished week to the other install as a FILE — AirDrop or
+     a message does the carrying, the app never opens a socket, and the no-sync
+     RESOLVED decision stands. Exports the profile currently shown on the Plan
+     screen: one week of that profile's meals plus every recipe and food they
+     reference (and the foods those buy as), so the other device can render and
+     shop the week even if it has never seen the recipes. */
+  shareWeek() {
+    const wid = UI.weekStart || (UI.weekStart = weekIdOf(UI.date));
+    const pid = planPid(), p = S.profiles[pid];
+    if (!p) return;
+    const w = S.plans[wid];
+    const days = {};
+    let n = 0;
+    for (const [date, byPid] of Object.entries((w && w.days) || {})) {
+      const rows = (byPid[pid] || []).filter(r => r.source !== "empty");
+      if (rows.length) { days[date] = rows; n += rows.length; }
+    }
+    if (!n) { alert("Nothing is planned this week for " + p.name + " — there is nothing to share yet."); return; }
+    const foods = {}, recipes = {};
+    const addFood = fid => {
+      if (!fid || !S.foods[fid] || foods[fid]) return;
+      foods[fid] = S.foods[fid];
+      if (S.foods[fid].buyAs) addFood(S.foods[fid].buyAs.foodId);
+    };
+    for (const rows of Object.values(days)) for (const r of rows) {
+      if (r.source === "recipe" && S.recipes[r.refId]) {
+        if (!recipes[r.refId]) {
+          recipes[r.refId] = S.recipes[r.refId];
+          for (const ing of S.recipes[r.refId].ingredients || []) addFood(ing.foodId);
+        }
+      } else if (r.source === "food") addFood(r.refId);
+    }
+    const payload = { leanline: "week", schemaVersion: S.schemaVersion, exportedAt: new Date().toISOString(),
+      weekId: wid, fromProfile: p.name, days, recipes, foods };
+    downloadFile("leanline-week-" + wid + "-" + (p.name || "week").toLowerCase().replace(/[^a-z0-9]+/g, "-") + ".json",
+      JSON.stringify(payload, null, 2), "application/json");
+    toast("Week exported — send the file to the other phone and use Import there");
+  },
+
   export(t) {
     const what = t.dataset.what;
     const payload = what === "recipes"
@@ -5491,6 +6251,34 @@ const ACTS = {
     if (!raw) { alert("Nothing to import."); return; }
     let data;
     try { data = JSON.parse(raw); } catch (e) { alert("That is not valid JSON."); return; }
+    /* LL-639: a shared week lands on the ACTIVE profile — the minor imports on
+       his own profile and it becomes his plan. Foods and recipes the week
+       needs are added only if missing; nothing already on this device is
+       overwritten, so an edited food here keeps its edit. */
+    if (data.leanline === "week" && data.weekId && data.days) {
+      const p = profile();
+      if (!confirm("Import " + (data.fromProfile ? data.fromProfile + "'s" : "this") + " week of " + weekLabel(data.weekId) +
+        " into " + p.name + "'s plan? It replaces " + p.name + "'s meals for that week. Recipes and foods it needs are added if missing; nothing of yours is overwritten.")) return;
+      for (const [id, f] of Object.entries(data.foods || {})) if (!S.foods[id]) S.foods[id] = JSON.parse(JSON.stringify(f));
+      for (const [id, r] of Object.entries(data.recipes || {})) if (!S.recipes[id]) S.recipes[id] = JSON.parse(JSON.stringify(r));
+      applyShopping(S.foods);
+      Object.values(S.recipes).forEach(r => computeRecipe(r));
+      const wid = data.weekId;
+      const w = S.plans[wid] = S.plans[wid] || { weekId: wid, batches: [], days: {} };
+      let n = 0, dropped = 0;
+      for (const [date, rows] of Object.entries(data.days)) {
+        const ok = (Array.isArray(rows) ? rows : []).filter(r =>
+          r && (r.source === "recipe" ? S.recipes[r.refId] : S.foods[r.refId]));
+        dropped += (Array.isArray(rows) ? rows.length : 0) - ok.length;
+        w.days[date] = w.days[date] || {};
+        w.days[date][p.id] = JSON.parse(JSON.stringify(ok));
+        n += ok.length;
+      }
+      save(); closeSheet(); render();
+      toast(n + " meal" + (n === 1 ? "" : "s") + " imported into " + p.name + "'s week" +
+        (dropped ? " — " + dropped + " skipped (missing recipe or food)" : ""));
+      return;
+    }
     if (data.leanline === "recipes" || (data.recipes && !data.profiles)) {
       if (!confirm("Merge these recipes and foods into your data? Nothing existing is deleted.")) return;
       Object.assign(S.foods, data.foods || {});
