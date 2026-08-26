@@ -2211,8 +2211,19 @@ function setMultiplier(weekId, recipeId, mult) {
   save();
 }
 /* Every recipe the week actually uses, with combined servings across profiles. */
+/* LL-645. the adult, 2026-08-26: "i generated meals for the week and it did past
+   days. It cant work like this the grocery list will be off." Shopping is done
+   NOW, so a week that contains today counts today forward — the eaten days are
+   not bought again. A fully FUTURE week is shopped whole. A fully PAST week is
+   also left whole: it is a record by then, and the week-1 reconciliation
+   against docs/03_WEEK_01.md depends on historical weeks keeping their sums. */
+function shopDates(weekId) {
+  const dates = weekDates(weekId), today = isoDate();
+  if (dates[0] > today || dates[dates.length - 1] < today) return dates;
+  return dates.filter(d => d >= today);
+}
 function weekBatches(weekId) {
-  const dates = weekDates(weekId);
+  const dates = shopDates(weekId);
   const acc = {};
   for (const p of Object.values(S.profiles)) {
     for (const d of dates) {
@@ -2369,7 +2380,7 @@ function groceryNeed(weekId) {
     for (const ing of b.recipe.ingredients) add(ing.foodId, ing.rawGrams * b.chosen);
   }
   for (const p of Object.values(S.profiles))
-    for (const d of weekDates(weekId))
+    for (const d of shopDates(weekId))      // LL-645: eaten days are not bought again
       for (const s of p.slots)
         for (const it of plannedItems(p, d, s.id))
           if (it.source === "food") add(it.refId, it.grams || 0);
@@ -2612,11 +2623,13 @@ function cartProtein(weekId) {
   }
   return { grams, confidence: confs.length ? weakest(confs) : "unknown" };
 }
-/* What the week's meals actually call for, both profiles, all seven days. */
+/* What the week's meals actually call for, both profiles — over the same days
+   the cart is shopped for (LL-645), or the variance would compare a
+   remaining-days cart against a whole-week requirement and read falsely light. */
 function weekPlannedProtein(weekId) {
   let grams = 0;
   for (const p of Object.values(S.profiles))
-    for (const d of weekDates(weekId)) grams += dayPlanTotals(p, d).t.p;
+    for (const d of shopDates(weekId)) grams += dayPlanTotals(p, d).t.p;
   return grams;
 }
 function proteinCheck(weekId) {
@@ -4889,7 +4902,8 @@ function viewGrocery() {
   const live = list.filter(l => !l.removed && l.needG > 0);
   const removed = list.filter(l => l.removed);
   h += '<p class="muted" style="margin:.35rem 0 .6rem;font-size:.9375rem">' + live.length + ' to buy · ' +
-    live.filter(l => l.checked).length + ' ticked</p>' +
+    live.filter(l => l.checked).length + ' ticked' +
+    (shopDates(wid).length < 7 ? ' · <b>today forward</b> — days of this week already past are not counted' : '') + '</p>' +
     '<button class="btn full" data-act="groceryGen">Regenerate from the plan</button>' +
     '<button class="btn full" data-act="groceryAddOpen" style="margin-top:.4rem">＋ Add something else to the list</button></div>';
   h += viewGroceryDownload(wid, true);
@@ -6012,7 +6026,8 @@ const ACTS = {
         "%). More than 10% light usually means something fell off the list."
       : null;
     const wTitle = "Week of " + weekLabel(wid);
-    const wSub = shoppingFor() + " · at the batch multipliers in the plan, pantry stock subtracted";
+    const wSub = shoppingFor() + " · at the batch multipliers in the plan, pantry stock subtracted" +
+      (shopDates(wid).length < 7 ? " · today forward, past days not counted" : "");
     if (fmt === "print") downloadFile("leanline-grocery-week-" + wid + ".html", groceryPrintHTML(list, wTitle, wSub, foot), "text/html;charset=utf-8");
     else if (fmt === "email") { emailGrocery(wTitle, groceryText(list, wTitle, wSub, foot)); toast("Opening your mail app…"); return; }
     else downloadFile("leanline-grocery-week-" + wid + ".txt", groceryText(list, wTitle, wSub, foot));
