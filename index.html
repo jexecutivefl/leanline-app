@@ -1843,7 +1843,19 @@ function generateWeek(p, weekId, opts) {
      the day-count generator passes each week its own slice */
   const dates = (opts.dates && opts.dates.length) ? opts.dates : weekDates(weekId);
   const pool = genPool(p);
-  if (!pool.recipes.length && !pool.foods.length) {
+  /* LL-638: mirroring plans the same meals as another profile, sized up to this
+     profile's own targets. The top-up sides draw from BOTH pools — the source's
+     staples (the rice, the potatoes, the milk) are food the household already
+     eats, the same principle genPool states for template foods. */
+  const mirrorP = opts.mirrorFrom ? S.profiles[opts.mirrorFrom] : null;
+  if (mirrorP) {
+    const haveF = {};
+    pool.foods.forEach(f => { haveF[f.id] = true; });
+    for (const f of genPool(mirrorP).foods) if (!haveF[f.id]) pool.foods.push(f);
+  }
+  const mirrorMiss = {};
+  let mirrorEmptyDays = 0;
+  if (!mirrorP && !pool.recipes.length && !pool.foods.length) {
     return { ok: false, why: "There is nothing to build a week out of yet. Add a recipe on the Food tab, or star a few foods as favourites, and this can fill the week from them." };
   }
   const tg = p.targets;
@@ -1872,7 +1884,37 @@ function generateWeek(p, weekId, opts) {
        matches against this, so a day that has already taken its protein starts
        preferring carbs on its own. */
     const want = { kcal: tg.kcal || 0, p: tg.protein || 0, c: tg.carbs || 0, f: tg.fat || 0 };
-    for (let si = 0; si < budgets.length; si++) {
+    /* LL-638: mirror mode places the source profile's day — same meals at the
+       same portions — into this profile's slots, then falls through to the
+       close-the-day passes below, which size the day UP to this profile's own
+       targets by adding sides and growing portions. For a minor that close is
+       already unconditional: his day reaches target or the preview says why. */
+    if (mirrorP) {
+      for (const src of effectiveDay(mirrorP, d)) {
+        if (src.source === "empty") continue;
+        const sid = mirrorSlotId(p, mirrorP, src.slotId, d);
+        if (!sid) {
+          const fs = slotOf(mirrorP, src.slotId);
+          mirrorMiss[fs ? fs.name : src.slotId] = true;
+          continue;
+        }
+        const item = src.servings != null
+          ? { source: src.source, refId: src.refId, servings: src.servings, grams: null }
+          : { source: src.source, refId: src.refId, grams: src.grams };
+        const got = resolveItem(item);
+        if (!got || !(got.macros.kcal >= 0)) continue;
+        const key = (item.source === "recipe" ? "recipe" : "food") + ":" + item.refId;
+        usedToday[key] = true;
+        useCount[key] = (useCount[key] || 0) + 1;
+        if (item.source === "recipe" && !firstSeen[item.refId]) firstSeen[item.refId] = d;
+        want.kcal -= got.macros.kcal; want.p -= got.macros.p; want.c -= got.macros.c; want.f -= got.macros.f;
+        const slot = slotOf(p, sid);
+        const row = { date: d, slotId: sid, slotName: slot.name, item, name: got.name, budget: got.macros.kcal, mirrored: true };
+        rows.push(row); placed.push(row);
+      }
+      if (!placed.length) mirrorEmptyDays++;
+    }
+    else for (let si = 0; si < budgets.length; si++) {
       const b = budgets[si];
       if (!(b.kcal > 0)) continue;
       if (onlyEmpty && plannedItems(p, d, b.slot.id).length) { skipped++; continue; }
@@ -1990,8 +2032,13 @@ function generateWeek(p, weekId, opts) {
         if (!(need.kcal > 0)) need.kcal = Math.max(gapP, 0) * 4;
         /* Already past the protein target? Then MORE of something on the plate
            beats a new row: adding is how the day gets another protein source it
-           did not need, growing is just a bigger helping of the carbs it did. */
-        if (gapK > 0 && t.p > (tg.protein || 0) * 1.05 && genGrowExisting(placed, gapK, need) > 0) continue;
+           did not need, growing is just a bigger helping of the carbs it did.
+           EXCEPT on a mirrored day (LL-638): there the plate is the adult's
+           protein-heavy meals, and growing them is more protein the minor does
+           not need — the sides the adult actually adds (the rice, the potatoes)
+           come from the pool, so the add-a-row path goes first and the fit
+           score picks carbs on its own. */
+        if (!mirrorP && gapK > 0 && t.p > (tg.protein || 0) * 1.05 && genGrowExisting(placed, gapK, need) > 0) continue;
         const pick = genTopUpPick(pool, need, usedToday, d, firstSeen);
         if (!pick) {
           if (gapK > 0 && genGrowExisting(placed, gapK, need) > 0) continue;
@@ -2069,6 +2116,17 @@ function generateWeek(p, weekId, opts) {
      arranged into a low-protein day at a high calorie target, however the
      amounts are scaled — and the fix is a wider pool, so that is what it says. */
   const warnings = [];
+  /* LL-638: what the mirror could not carry over is said out loud. */
+  if (mirrorP) {
+    const misses = Object.keys(mirrorMiss).sort();
+    if (misses.length)
+      warnings.push("Not mirrored from " + mirrorP.name + ": " + misses.join(", ") +
+        " — no slot of " + p.name + "'s matches by name or by time of day." +
+        (misses.indexOf("Creatine") >= 0 && p.isMinor ? " The Creatine slot is meant to stay behind: supplements are not copied onto a minor." : ""));
+    if (mirrorEmptyDays)
+      warnings.push(mirrorEmptyDays + " day" + (mirrorEmptyDays === 1 ? " has" : "s have") + " nothing planned for " +
+        mirrorP.name + " to mirror — plan or generate " + mirrorP.name + "'s days first, then run this again.");
+  }
   const MACROS = [["p", "protein", tg.protein], ["c", "carbs", tg.carbs], ["f", "fat", tg.fat]];
   const filled = days.filter(x => x.n);
   for (const [k, label, target] of MACROS) {
@@ -2105,6 +2163,31 @@ function applyGeneratedWeek(p, weekId, rows, noSnap) {
   }
   save();
   return rows.length;
+}
+
+/* LL-638. Which of the target's slots a mirrored meal lands in: an exact name
+   match first (the Copy-day convention), else the slot nearest in time of day —
+   the adult's 13:00 meal is the boy's lunch whatever the slots are called.
+   A source slot with no time and no name match cannot be mapped and is
+   REPORTED, never guessed: that is what keeps the adult's Creatine slot from
+   ever being copied onto a minor. */
+function mirrorSlotId(toP, fromP, fromSlotId, dateStr) {
+  const fs = slotOf(fromP, fromSlotId);
+  if (!fs) return null;
+  const byName = slotIdByName(toP, fs.name);
+  if (byName) return byName;
+  const mins = x => (+x.split(":")[0]) * 60 + (+x.split(":")[1]);
+  const t = slotTime(fs, dateStr);
+  if (!t || !/^\d{1,2}:\d{2}$/.test(t)) return null;
+  const ft = mins(t);
+  let best = null, bd = Infinity;
+  for (const s of toP.slots) {
+    const st = slotTime(s, dateStr);
+    if (!st || !/^\d{1,2}:\d{2}$/.test(st)) continue;
+    const dd = Math.abs(mins(st) - ft);
+    if (dd < bd) { bd = dd; best = s.id; }
+  }
+  return best;
 }
 
 /* LL-644: where a fresh generation should start. the adult's rule, verbatim: "it
@@ -2346,9 +2429,18 @@ function purchaseUnitFor(food, grams) {
 /* Use-by day, counted from the cook date — the day before the week starts.
    null when the food has no stated window: an invented shelf life is worse
    than none at all. */
+/* LL-646. The clock starts when the food is BOUGHT. For a week shopped in
+   advance that is the cook day; mid-week it is today — the adult's 8/26 list said
+   "use by Mon 24 Aug" two days after that Monday had passed, because the
+   anchor never moved off the cook day. A fully past week keeps the cook-day
+   anchor: it is a record by then (same rule as shopDates), and the LL-203
+   reconciliation against docs/03_WEEK_01.md pins those dates. */
 function perishByFor(food, weekId) {
   if (!food || food.perishDays == null) return null;
-  return shiftDate(cookDayOf(weekId), food.perishDays);
+  const dates = weekDates(weekId), today = isoDate();
+  const cook = cookDayOf(weekId);
+  if (dates[dates.length - 1] < today) return shiftDate(cook, food.perishDays);
+  return shiftDate(cook > today ? cook : today, food.perishDays);
 }
 
 function buyTarget(food) {
@@ -5221,10 +5313,27 @@ function sheetGenerate(result) {
     '<button class="chipbtn" data-act="genStart" data-v="today" aria-pressed="' + (UI.genStart === "today") + '">Today</button></div>' +
     '<p class="muted" style="font-size:.8125rem;margin:.35rem 0 0">Tomorrow is the default — today only offers itself before breakfast, and a day half-eaten is not a day to plan.</p>';
 
-  h += '<div class="eyebrow" style="margin-top:.6rem">Which slots</div><div class="wrap" style="margin-top:.4rem">' +
-    '<button class="chipbtn" data-act="genScope" data-v="empty" aria-pressed="' + onlyEmpty + '">Only empty slots</button>' +
-    '<button class="chipbtn" data-act="genScope" data-v="all" aria-pressed="' + (!onlyEmpty) + '">Replace those days</button></div>' +
-    '<p class="muted" style="font-size:.8125rem;margin:.35rem 0 0">Plans only. Nothing you have already logged is touched, and Undo is on the Plan screen afterwards.</p>';
+  /* LL-638: with exactly one other profile in the app, this profile's days can
+     mirror theirs — same meals, sized up to this profile's own targets. */
+  const others = Object.values(S.profiles).filter(x => x.id !== pid);
+  const canMirror = others.length === 1;
+  if (!canMirror) UI.genMirror = false;
+  if (canMirror) {
+    h += '<div class="eyebrow" style="margin-top:.6rem">Whose meals</div><div class="wrap" style="margin-top:.4rem">' +
+      '<button class="chipbtn" data-act="genMirror" data-v="own" aria-pressed="' + (!UI.genMirror) + '">Built for ' + esc(p.name) + '</button>' +
+      '<button class="chipbtn" data-act="genMirror" data-v="mirror" aria-pressed="' + (!!UI.genMirror) + '">Same meals as ' + esc(others[0].name) + ', sized up</button></div>' +
+      '<p class="muted" style="font-size:.8125rem;margin:.35rem 0 0">Mirroring copies ' + esc(others[0].name) + '&rsquo;s planned meals into ' + esc(p.name) +
+      '&rsquo;s day at the same portions, then adds sides and grows portions until ' + esc(p.name) + '&rsquo;s own targets are met. Plan ' + esc(others[0].name) + '&rsquo;s days first.</p>';
+  }
+
+  if (canMirror && UI.genMirror) {
+    h += '<p class="muted" style="font-size:.8125rem;margin:.55rem 0 0">Mirrored days replace whatever is in the matched slots. Plans only — nothing logged is touched, and Undo is on the Plan screen afterwards.</p>';
+  } else {
+    h += '<div class="eyebrow" style="margin-top:.6rem">Which slots</div><div class="wrap" style="margin-top:.4rem">' +
+      '<button class="chipbtn" data-act="genScope" data-v="empty" aria-pressed="' + onlyEmpty + '">Only empty slots</button>' +
+      '<button class="chipbtn" data-act="genScope" data-v="all" aria-pressed="' + (!onlyEmpty) + '">Replace those days</button></div>' +
+      '<p class="muted" style="font-size:.8125rem;margin:.35rem 0 0">Plans only. Nothing you have already logged is touched, and Undo is on the Plan screen afterwards.</p>';
+  }
 
   h += '<div style="height:.6rem"></div><button class="btn full tall" data-act="genRun">' +
     (result ? "Work it out again" : "Work out " + nDays + " day" + (nDays === 1 ? "" : "s")) + '</button>';
@@ -5259,7 +5368,7 @@ function sheetGenerate(result) {
       if (row.date !== day) { day = row.date; h += '<p class="eyebrow" style="margin:.5rem 0 .2rem">' + esc(fmtDate(day)) + '</p>'; }
       const r = resolveItem(row.item);
       h += '<div class="item"><span class="grow"><span class="nm">' + esc(row.slotName) + ' — ' + esc(row.name) +
-        (row.topUp ? ' <span class="fd">(to reach the protein target)</span>' : '') + '</span><br>' +
+        (row.topUp ? ' <span class="fd">(added to reach the day&rsquo;s target)</span>' : '') + '</span><br>' +
         '<span class="sub num">' + (row.item.servings != null ? R1(row.item.servings) + ' serving' + (row.item.servings === 1 ? '' : 's') : R(row.item.grams) + ' g') +
         (r ? ' · ' + R(r.macros.kcal) + ' kcal · ' + R1(r.macros.p) + ' g P' : '') + '</span></span>' +
         (r ? '<span class="conf ' + r.confidence + '">' + r.confidence.toUpperCase() + '</span>' : '') + '</div>';
@@ -6075,6 +6184,7 @@ const ACTS = {
   genScope(t) { UI.genOnlyEmpty = t.dataset.v === "empty"; sheetGenerate(null); },
   genDays(t) { UI.genDays = +t.dataset.v || 7; sheetGenerate(null); },
   genStart(t) { UI.genStart = t.dataset.v === "today" ? "today" : "tomorrow"; sheetGenerate(null); },
+  genMirror(t) { UI.genMirror = t.dataset.v === "mirror"; sheetGenerate(null); },
   genRun() {
     /* LL-644: N days from the chosen start, split by week because the pool
        rules (holding windows, rotation) are computed per generateWeek call */
@@ -6085,9 +6195,12 @@ const ACTS = {
     for (let i = 0; i < n; i++) dates.push(shiftDate(start, i));
     const byWeek = {};
     for (const d of dates) { const w = weekIdOf(d); (byWeek[w] || (byWeek[w] = [])).push(d); }
+    /* LL-638: mirror mode copies the one other profile's meals, sized up */
+    const otherIds = Object.keys(S.profiles).filter(id => id !== p.id);
+    const mirrorFrom = UI.genMirror && otherIds.length === 1 ? otherIds[0] : undefined;
     let merged = null;
     for (const [wid, ds] of Object.entries(byWeek)) {
-      const r = generateWeek(p, wid, { onlyEmpty: UI.genOnlyEmpty !== false, dates: ds });
+      const r = generateWeek(p, wid, { onlyEmpty: !mirrorFrom && UI.genOnlyEmpty !== false, dates: ds, mirrorFrom });
       if (!r.ok) { merged = r; break; }
       if (!merged) merged = { ok: true, rows: [], days: [], warnings: [], skipped: 0, poolSize: r.poolSize, thin: r.thin, range: { start, n } };
       merged.rows = merged.rows.concat(r.rows);
