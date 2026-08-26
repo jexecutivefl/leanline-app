@@ -463,7 +463,14 @@ function backfillLibrary(st) {
 /* Seed foods this app has renamed, id → the name it used to ship with. A rename
    is only applied to a phone whose copy still carries the OLD name exactly; the
    moment a name differs, it is somebody's edit and it is left alone. */
-const SEED_RENAMES = { f_mashpot: "Mashed potatoes, prepared" };
+const SEED_RENAMES = {
+  f_mashpot: "Mashed potatoes, prepared",
+  /* LL-642: the adult confirmed 85/15-only; the 80/20 entry is demoted in name so
+     nobody logs against it thinking it is his */
+  f_gb8020: "Ground beef 80/20, raw",
+  /* LL-642: identity settled — his sirloin is the whole knuckle from Sam's */
+  f_sirloin: "Sirloin, trimmed, raw"
+};
 
 /* LL-625. backfillLibrary used to be add-only, which was right for new foods and
    silently wrong for corrected ones. When the adult read his tuna can and his peanut
@@ -701,7 +708,8 @@ function seedFoods() {
     F("f_prunes", "Prunes, dried", 240, 2.2, 63.9, 0.4, 7.1, "verified", srl(168162, "Plums, dried (prunes), uncooked", "240 kcal/100 g, identical to this record. Fiber 7.1 g")),
     F("f_soy", "Soy sauce", 53, 8.1, 4.9, 0.6, 0.8, "verified", srl(174277, "Soy sauce made from soy and wheat (shoyu)", "53 kcal/100 g, identical to this record. Fiber 0.8 g"), { portionHints: [{ label: "1 tbsp", grams: 15 }] }),
     F("f_honey", "Honey", 304, 0.3, 82.4, 0, 0, "verified", USDA, { dense: true }),
-    F("f_sirloin", "Sirloin, trimmed, raw", 155, 21.5, 0, 7.3, 0, "estimated", BRAND + ". USDA range 129 (lean only) to 176 (1/8\" trim); 155 assumes moderate trim."),
+    F("f_sirloin", "Sirloin (whole knuckle), trimmed, raw", 155, 21.5, 0, 7.3, 0, "estimated",
+      "IDENTITY SETTLED 2026-08-26: the adult buys the WHOLE KNUCKLE at Sam's Club (sometimes Gordon Food Service) and trims it himself. The knuckle is USDA's tip round — the knuckle records bracket it: fully trimmed lean 126 kcal / 21.1 P / 3.95 F (SR Legacy 173125), 0\" lean+fat 151 kcal (169470), 1/8\" fat 189 kcal (169525); the tip-center and tip-side steak records (173369/173367, USDA's own 'knuckle' naming) run 143 and 129. The 155 carried here sits inside that bracket as a moderate-trim middle and is left alone — how hard the adult trims decides where in 126–189 it really lands, and that answer moves this to verified. (The old note's '129–176 top sirloin range' did not trace to USDA raw records and is retired.)"),
     F("f_mexcheese", "Mexican blend shredded cheese", 400, 24, 3, 32, 0, "estimated", BRAND, { dense: true }),
     F("f_mozz", "Mozzarella, part-skim shredded", 300, 24, 3.5, 20, 0, "estimated", BRAND, { dense: true }),
     F("f_parm", "Parmesan, grated", 415, 33, 4, 27, 0, "estimated", BRAND, { dense: true }),
@@ -805,12 +813,12 @@ function seedFoods() {
        shrimp, which ham, which trim) the confidence is estimated and the source
        names the alternative records so switching is an edit, not a research job. */
     F("f_gb8515", "Ground beef 85/15, raw", 215, 18.6, 0, 15.0, 0, "verified",
-      "the adult named the ratio himself — 85/15 is his word, not an assumption. " + srl(171796, "Beef, ground, 85% lean meat / 15% fat, raw", "215 kcal, 18.6 P, 0 C, 15.0 F — the record verbatim, retrieved 2026-08-26")),
+      "the adult named the ratio himself and confirmed the same day: 85/15, from Sam's Club — it is the ONLY ground beef he buys. " + srl(171796, "Beef, ground, 85% lean meat / 15% fat, raw", "215 kcal, 18.6 P, 0 C, 15.0 F — the record verbatim, retrieved 2026-08-26")),
     F("f_gb8515c", "Ground beef 85/15, pan-browned, drained", 256, 27.7, 0, 15.3, 0, "verified",
       srl(174034, "Beef, ground, 85% lean meat / 15% fat, crumbles, cooked, pan-browned", "256 kcal, 27.7 P, 0 C, 15.3 F — the record verbatim, retrieved 2026-08-26. the adult drains his — the record is crumbles as poured off, so a heavy drain runs slightly leaner than this") ,
       { buyAs: { foodId: "f_gb8515", basis: "kcal" } }),
-    F("f_gb8020", "Ground beef 80/20, raw", 254, 17.2, 0, 20.0, 0, "estimated",
-      "the adult wrote “85/25”, which is not a ratio beef is sold at — 80/20 is the nearest common one and is what this record carries: " + srl(174036, "Beef, ground, 80% lean meat / 20% fat, raw", "254 kcal, 17.2 P, 0 C, 20.0 F, retrieved 2026-08-26") + " If the package actually says 73/27 or 75/25, say so and this entry moves to that record."),
+    F("f_gb8020", "Ground beef 80/20, raw (not the adult's usual)", 254, 17.2, 0, 20.0, 0, "estimated",
+      "SETTLED 2026-08-26: the adult confirmed his ground beef is 85/15 from Sam's, only — the “85/25” in his original list was a slip, not a second product. This 80/20 record (" + srl(174036, "Beef, ground, 80% lean meat / 20% fat, raw", "254 kcal, 17.2 P, 0 C, 20.0 F") + ") is kept because nothing in this library is deleted; use f_gb8515 unless a package in hand actually says 80/20."),
     F("f_shrimp", "Shrimp, peeled, raw (frozen bag)", 71, 13.6, 0.91, 1.01, 0, "estimated",
       "Typical frozen peeled shrimp is treated to retain moisture, and that is what this record is: " + srl(174210, "Crustaceans, shrimp, mixed species, raw (may contain additives to retain moisture)", "71 kcal, 13.6 P, 0.91 C, 1.01 F, retrieved 2026-08-26") + " Untreated shrimp (175179) runs 85 kcal / 20.1 P — a 48% protein swing, which is why this is estimated until the bag in the freezer says which it is. Fiber 0 by definition (animal food)."),
     F("f_shrimpc", "Shrimp, cooked", 119, 22.8, 1.52, 1.70, 0, "estimated",
@@ -825,7 +833,7 @@ function seedFoods() {
     F("f_grchk", "Ground chicken, raw", 143, 17.4, 0.04, 8.1, 0, "verified",
       srl(171116, "Chicken, ground, raw", "143 kcal, 17.4 P, 0.04 C, 8.1 F — the record verbatim, retrieved 2026-08-26")),
     F("f_eyeround", "Eye of round roast, raw", 166, 21.5, 0, 8.24, 0, "estimated",
-      "Trim decides this cut. Carried at 1/8” trim: " + srl(169523, "Beef, round, eye of round, roast, separable lean and fat, trimmed to 1/8 inch fat, all grades, raw", "166 kcal, 21.5 P, 0 C, 8.24 F, retrieved 2026-08-26") + " Trimmed to 0” (171745) is 124 kcal / 3.44 F. Same reasoning as the sirloin entry: moderate trim assumed until the adult says how he trims."),
+      "Confirmed in the cart 2026-08-26: the adult buys this at Sam's Club. Trim still decides the number. Carried at 1/8” trim: " + srl(169523, "Beef, round, eye of round, roast, separable lean and fat, trimmed to 1/8 inch fat, all grades, raw", "166 kcal, 21.5 P, 0 C, 8.24 F, retrieved 2026-08-26") + " Trimmed to 0” (171745) is 124 kcal / 3.44 F. Moderate trim assumed until the adult says how he trims."),
     F("f_egghb", "Egg, hard-boiled", 155, 12.58, 1.12, 10.61, 0, "verified",
       srl(173424, "Egg, whole, cooked, hard-boiled", "155 kcal, 12.58 P, 1.12 C, 10.61 F — the record verbatim, retrieved 2026-08-26"),
       { portionHints: [{ label: "1 large", grams: 50 }], buyAs: { foodId: "f_egg", basis: "kcal" } }),
@@ -1831,7 +1839,9 @@ function genFitScore(pick, want) {
 function generateWeek(p, weekId, opts) {
   opts = opts || {};
   const onlyEmpty = opts.onlyEmpty !== false;
-  const dates = weekDates(weekId);
+  /* LL-644: an explicit date list plans exactly those days of this week —
+     the day-count generator passes each week its own slice */
+  const dates = (opts.dates && opts.dates.length) ? opts.dates : weekDates(weekId);
   const pool = genPool(p);
   if (!pool.recipes.length && !pool.foods.length) {
     return { ok: false, why: "There is nothing to build a week out of yet. Add a recipe on the Food tab, or star a few foods as favourites, and this can fill the week from them." };
@@ -2082,9 +2092,11 @@ function generateWeek(p, weekId, opts) {
 }
 
 /* Writes what the preview showed, and nothing else. Plans only — a logged entry
-   is never touched, same as copy day and copy week. */
-function applyGeneratedWeek(p, weekId, rows) {
-  snapshotPlans("Auto-fill of " + weekLabel(weekId) + " for " + p.name);
+   is never touched, same as copy day and copy week. Rows are date-addressed, so
+   one call handles a run of days that crosses a week boundary; noSnap lets the
+   caller take a single undo snapshot around the whole apply (LL-644). */
+function applyGeneratedWeek(p, weekId, rows, noSnap) {
+  if (!noSnap) snapshotPlans("Auto-fill of " + weekLabel(weekId) + " for " + p.name);
   const cleared = {};
   for (const row of rows) {
     const key = row.date + "|" + row.slotId;
@@ -2093,6 +2105,21 @@ function applyGeneratedWeek(p, weekId, rows) {
   }
   save();
   return rows.length;
+}
+
+/* LL-644: where a fresh generation should start. the adult's rule, verbatim: "it
+   should not build meals for the current day unless specified and or its before
+   breakfast." So the default is TOMORROW — except before the first meal of the
+   day, when planning today still makes sense. He can always override with the
+   Today chip; this only picks the default. nowMin is minutes since midnight,
+   passed in so the rule is testable. A slot with no set time cannot say what
+   "before breakfast" means, so it defaults to tomorrow rather than guessing. */
+function genDefaultStart(p, nowMin) {
+  const s = p.slots && p.slots[0];
+  const t = s && slotTime(s, isoDate());
+  if (!t || !/^\d{1,2}:\d{2}$/.test(t)) return "tomorrow";
+  const parts = t.split(":");
+  return nowMin < (+parts[0]) * 60 + (+parts[1]) ? "today" : "tomorrow";
 }
 
 /* Text marks, never colour alone — Panel §10. */
@@ -4901,22 +4928,39 @@ function viewGrocery() {
    are the same rows. */
 function viewGroceryDownload(weekId, haveWeek) {
   const dates = weekDates(weekId);
-  const pick = dates.includes(UI.date) ? UI.date : dates[0];
+  /* LL-644: a fresh generation preselects its own range here */
+  const pre = UI.gdPrefill && dates.includes(UI.gdPrefill.start) ? UI.gdPrefill : null;
+  const pick = pre ? pre.start : (dates.includes(UI.date) ? UI.date : dates[0]);
+  const span = pre ? pre.span : 1;
   let h = '<div class="card"><div class="eyebrow">Take it to the shop</div>' +
-    '<p class="muted" style="font-size:.875rem;margin:.35rem 0 .6rem">Two ways out: a plain text list that opens anywhere, or a printable page with big type and a Print button, grouped by store. Neither leaves the phone unless you send it.</p>';
+    '<p class="muted" style="font-size:.875rem;margin:.35rem 0 .6rem">Three ways out: a plain text list that opens anywhere, a printable page with big type and a Print button, or an email — all grouped by store. Nothing leaves the phone unless you send it.</p>';
   if (haveWeek) {
     h += '<button class="btn full tall" data-act="groceryDownload" data-scope="week">⤓ Download the whole week (text)</button>' +
       '<button class="btn full tall" data-act="groceryDownload" data-scope="week" data-fmt="print">⎙ Printable page — whole week</button>' +
+      '<button class="btn full tall" data-act="groceryDownload" data-scope="week" data-fmt="email">✉ Email the whole week</button>' +
       '<div class="rule"></div>';
   }
-  h += '<div class="field"><label for="gdDay">One day instead</label><select id="gdDay">' +
+  h += '<div class="two"><div class="field"><label for="gdDay">Starting</label><select id="gdDay">' +
     dates.map(d => '<option value="' + d + '"' + (d === pick ? " selected" : "") + '>' + esc(fmtDate(d)) + '</option>').join("") +
     '</select></div>' +
-    '<button class="btn full tall" data-act="groceryDownload" data-scope="day">⤓ Download that day (text)</button>' +
-    '<button class="btn full tall" data-act="groceryDownload" data-scope="day" data-fmt="print">⎙ Printable page — that day</button>' +
-    '<p class="muted" style="font-size:.8125rem;margin:.4rem 0 0">A day is shopped at exactly what its meals call for. The week is shopped at the batch multipliers, which round up to whole cooks.</p>' +
+    '<div class="field"><label for="gdSpan">Days</label><select id="gdSpan">' +
+    [1, 2, 3, 4, 5, 6, 7].map(n => '<option value="' + n + '"' + (n === span ? " selected" : "") + '>' + n + '</option>').join("") +
+    '</select></div></div>' +
+    '<button class="btn full tall" data-act="groceryDownload" data-scope="day">⤓ Download those days (text)</button>' +
+    '<button class="btn full tall" data-act="groceryDownload" data-scope="day" data-fmt="print">⎙ Printable page — those days</button>' +
+    '<button class="btn full tall" data-act="groceryDownload" data-scope="day" data-fmt="email">✉ Email those days</button>' +
+    '<p class="muted" style="font-size:.8125rem;margin:.4rem 0 0">Days are shopped at exactly what their meals call for. The week is shopped at the batch multipliers, which round up to whole cooks. A very long list can overflow an email link — if the draft arrives empty, download instead and attach the file.</p>' +
     '</div>';
   return h;
+}
+/* LL-644: hand the list to the mail app. A mailto: link is not a network call —
+   the app writes nothing and reaches nothing; the mail client the user already
+   trusts does the sending. Same anchor-click mechanism as downloadFile. */
+function emailGrocery(subject, body) {
+  const a = document.createElement("a");
+  a.href = "mailto:?subject=" + encodeURIComponent("LEANLINE grocery — " + subject) +
+    "&body=" + encodeURIComponent(body);
+  document.body.appendChild(a); a.click(); a.remove();
 }
 function groceryRow(weekId, l, guard) {
   const f = l.foodId ? S.foods[l.foodId] : null;
@@ -5143,17 +5187,33 @@ function copyResultToast(r) {
    produced. Nothing is written from the first state — "Fill the week" is only
    offered once there is a preview on screen to have read. */
 function sheetGenerate(result) {
-  const pid = planPid(), p = S.profiles[pid], wid = UI.weekStart || weekIdOf(UI.date);
+  const pid = planPid(), p = S.profiles[pid];
   const onlyEmpty = UI.genOnlyEmpty !== false;
-  let h = sheetHead("Fill " + weekLabel(wid), p.name + " · built from your recipes and favourites");
+  /* LL-644: how many days, starting when. The start defaults to tomorrow —
+     today only before the first meal's time — per the adult's rule; the chips
+     override it. */
+  const now = new Date();
+  if (UI.genStart == null) UI.genStart = genDefaultStart(p, now.getHours() * 60 + now.getMinutes());
+  const nDays = UI.genDays || 7;
+  let h = sheetHead("Plan the days ahead", p.name + " · built from your recipes and favourites");
 
-  h += '<div class="eyebrow">Which days</div><div class="wrap" style="margin-top:.4rem">' +
+  h += '<div class="eyebrow">How many days</div><div class="wrap" style="margin-top:.4rem">';
+  for (let i = 1; i <= 7; i++)
+    h += '<button class="chipbtn" data-act="genDays" data-v="' + i + '" aria-pressed="' + (nDays === i) + '">' + i + '</button>';
+  h += '</div>';
+
+  h += '<div class="eyebrow" style="margin-top:.6rem">Starting</div><div class="wrap" style="margin-top:.4rem">' +
+    '<button class="chipbtn" data-act="genStart" data-v="tomorrow" aria-pressed="' + (UI.genStart !== "today") + '">Tomorrow</button>' +
+    '<button class="chipbtn" data-act="genStart" data-v="today" aria-pressed="' + (UI.genStart === "today") + '">Today</button></div>' +
+    '<p class="muted" style="font-size:.8125rem;margin:.35rem 0 0">Tomorrow is the default — today only offers itself before breakfast, and a day half-eaten is not a day to plan.</p>';
+
+  h += '<div class="eyebrow" style="margin-top:.6rem">Which slots</div><div class="wrap" style="margin-top:.4rem">' +
     '<button class="chipbtn" data-act="genScope" data-v="empty" aria-pressed="' + onlyEmpty + '">Only empty slots</button>' +
-    '<button class="chipbtn" data-act="genScope" data-v="all" aria-pressed="' + (!onlyEmpty) + '">Replace the whole week</button></div>' +
+    '<button class="chipbtn" data-act="genScope" data-v="all" aria-pressed="' + (!onlyEmpty) + '">Replace those days</button></div>' +
     '<p class="muted" style="font-size:.8125rem;margin:.35rem 0 0">Plans only. Nothing you have already logged is touched, and Undo is on the Plan screen afterwards.</p>';
 
   h += '<div style="height:.6rem"></div><button class="btn full tall" data-act="genRun">' +
-    (result ? "Work it out again" : "Work out a week") + '</button>';
+    (result ? "Work it out again" : "Work out " + nDays + " day" + (nDays === 1 ? "" : "s")) + '</button>';
 
   if (result && !result.ok) {
     h += '<div class="safety" style="margin-top:.7rem">' + esc(result.why) + '</div>';
@@ -5926,16 +5986,22 @@ const ACTS = {
   groceryOpen() { const wid = UI.weekStart || (UI.weekStart = weekIdOf(UI.date)); if (!S.grocery[wid]) generateGrocery(wid); UI.tab = "grocery"; render(); },
   groceryDownload(t) {
     const wid = UI.weekStart || (UI.weekStart = weekIdOf(UI.date));
-    /* LL-636: same lines, two containers — plain text, or a printable page */
-    const asPrint = t.dataset.fmt === "print";
+    /* LL-636/644: same lines, three containers — text file, printable page, email */
+    const fmt = t.dataset.fmt || "txt";
     if (t.dataset.scope === "day") {
       const sel = el("gdDay");
       const d = (sel && sel.value) || UI.date;
-      const lines = linesFromNeed(needForDates([d]), wid);
-      const sub = shoppingFor() + " · from that day's meals, pantry stock subtracted";
-      if (asPrint) downloadFile("leanline-grocery-" + d + ".html", groceryPrintHTML(lines, fmtDate(d), sub), "text/html;charset=utf-8");
-      else downloadFile("leanline-grocery-" + d + ".txt", groceryText(lines, fmtDate(d), sub));
-      toast("Downloaded " + fmtDate(d));
+      const span = Math.max(1, Math.min(7, +((el("gdSpan") || {}).value) || 1));
+      const dates = [];
+      for (let i = 0; i < span; i++) dates.push(shiftDate(d, i));
+      const lines = linesFromNeed(needForDates(dates), wid);
+      const title = span === 1 ? fmtDate(d) : fmtDate(d) + " – " + fmtDate(dates[span - 1]) + " (" + span + " days)";
+      const sub = shoppingFor() + " · from " + (span === 1 ? "that day's" : "those days'") + " meals, pantry stock subtracted";
+      const stem = "leanline-grocery-" + d + (span > 1 ? "-" + span + "d" : "");
+      if (fmt === "print") downloadFile(stem + ".html", groceryPrintHTML(lines, title, sub), "text/html;charset=utf-8");
+      else if (fmt === "email") { emailGrocery(title, groceryText(lines, title, sub)); toast("Opening your mail app…"); return; }
+      else downloadFile(stem + ".txt", groceryText(lines, title, sub));
+      toast("Downloaded " + title);
       return;
     }
     const list = S.grocery[wid] || generateGrocery(wid);
@@ -5947,7 +6013,8 @@ const ACTS = {
       : null;
     const wTitle = "Week of " + weekLabel(wid);
     const wSub = shoppingFor() + " · at the batch multipliers in the plan, pantry stock subtracted";
-    if (asPrint) downloadFile("leanline-grocery-week-" + wid + ".html", groceryPrintHTML(list, wTitle, wSub, foot), "text/html;charset=utf-8");
+    if (fmt === "print") downloadFile("leanline-grocery-week-" + wid + ".html", groceryPrintHTML(list, wTitle, wSub, foot), "text/html;charset=utf-8");
+    else if (fmt === "email") { emailGrocery(wTitle, groceryText(list, wTitle, wSub, foot)); toast("Opening your mail app…"); return; }
     else downloadFile("leanline-grocery-week-" + wid + ".txt", groceryText(list, wTitle, wSub, foot));
     toast("Downloaded the week");
   },
@@ -5991,17 +6058,46 @@ const ACTS = {
   },
   genOpen() { sheetGenerate(null); },
   genScope(t) { UI.genOnlyEmpty = t.dataset.v === "empty"; sheetGenerate(null); },
+  genDays(t) { UI.genDays = +t.dataset.v || 7; sheetGenerate(null); },
+  genStart(t) { UI.genStart = t.dataset.v === "today" ? "today" : "tomorrow"; sheetGenerate(null); },
   genRun() {
-    const p = S.profiles[planPid()], wid = UI.weekStart || (UI.weekStart = weekIdOf(UI.date));
-    sheetGenerate(generateWeek(p, wid, { onlyEmpty: UI.genOnlyEmpty !== false }));
+    /* LL-644: N days from the chosen start, split by week because the pool
+       rules (holding windows, rotation) are computed per generateWeek call */
+    const p = S.profiles[planPid()];
+    const n = UI.genDays || 7;
+    const start = UI.genStart === "today" ? isoDate() : shiftDate(isoDate(), 1);
+    const dates = [];
+    for (let i = 0; i < n; i++) dates.push(shiftDate(start, i));
+    const byWeek = {};
+    for (const d of dates) { const w = weekIdOf(d); (byWeek[w] || (byWeek[w] = [])).push(d); }
+    let merged = null;
+    for (const [wid, ds] of Object.entries(byWeek)) {
+      const r = generateWeek(p, wid, { onlyEmpty: UI.genOnlyEmpty !== false, dates: ds });
+      if (!r.ok) { merged = r; break; }
+      if (!merged) merged = { ok: true, rows: [], days: [], warnings: [], skipped: 0, poolSize: r.poolSize, thin: r.thin, range: { start, n } };
+      merged.rows = merged.rows.concat(r.rows);
+      merged.days = merged.days.concat(r.days);
+      merged.warnings = merged.warnings.concat(r.warnings || []);
+      merged.skipped += r.skipped || 0;
+      merged.thin = merged.thin || r.thin;
+    }
+    sheetGenerate(merged);
   },
   genApply() {
     const r = sheetState.gen;
     if (!r || !r.ok || !r.rows.length) return;
-    const p = S.profiles[planPid()], wid = UI.weekStart || weekIdOf(UI.date);
-    const n = applyGeneratedWeek(p, wid, r.rows);
-    closeSheet(); UI.tab = "plan"; render();
-    toast(n + " meal" + (n === 1 ? "" : "s") + " planned — Undo is on the Plan screen");
+    const p = S.profiles[planPid()];
+    snapshotPlans("Auto-fill of " + r.rows.length + " meals for " + p.name);
+    const n = applyGeneratedWeek(p, weekIdOf(r.rows[0].date), r.rows, true);
+    /* his stated flow: plan the meals, then the grocery list, then print or
+       email it — so land on Grocery with the generated range preselected */
+    if (r.range) UI.gdPrefill = { start: r.range.start, span: r.range.n };
+    closeSheet();
+    UI.tab = "grocery";
+    UI.weekStart = weekIdOf(r.rows[0].date);
+    generateGrocery(UI.weekStart);
+    render();
+    toast(n + " meal" + (n === 1 ? "" : "s") + " planned — the grocery list below covers them. Undo is on the Plan screen.");
   },
   copyDayOpen() { sheetCopyDay(); },
   copyWeekOpen() { sheetCopyWeek(); },
