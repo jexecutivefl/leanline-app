@@ -2981,7 +2981,7 @@ let S = null;
    so. pwa/build.mjs rewrites this ONE line with the commit count, the commit
    date and the build hash, so a phone can tell an old build from a new one
    without guessing. Nothing here is fetched; it is a constant. */
-const BUILD = {"n":96,"date":"2026-11-11","id":"4d548627ccf1"};
+const BUILD = {"n":98,"date":"2026-11-11","id":"7bc41a3ff26b"};
 function buildLabel() {
   return BUILD.n ? "Version " + BUILD.n + " · " + BUILD.date + " · build " + BUILD.id : "Development copy — not an installed build";
 }
@@ -3732,7 +3732,7 @@ function exName(id) { return EXERCISES[id] ? EXERCISES[id].name : id; }
 function fmtRange(t) { return t.sets + " × " + t.min + "–" + t.max + (t.perSide ? " per side" : "") + " · rest " + fmtSec(t.rest) + " · about " + (t.rirTarget != null ? t.rirTarget : 2) + " in reserve"; }
 function viewTrain(p) {
   const enr = activeEnrollment(p.id);
-  if (!enr) return viewTrainLegacy(p) ;
+  if (!enr) return viewProgramStart(p) + viewTrainLegacy(p);
   const d = UI.date;
   const s = sessionOn(p.id, d);
   const row = rowOf(p.id, d);
@@ -3746,6 +3746,18 @@ function viewTrain(p) {
   h += '<button class="btn full" data-act="progSheet">Program ▸</button>';
   h += viewTrainHistory(p);
   return h;
+}
+/* LL-652. Before a program is started this is the only door to the Program
+   sheet; without it a fresh profile could never enrol (found on the phone,
+   2026-11-11). Role-neutral copy: names come from state, never from here. */
+function viewProgramStart(p) {
+  const t = PROGRAM_TEMPLATES[0];
+  const names = t.cycle.map(k => t.days[k].name).join(" · ");
+  return '<div class="card" role="region" aria-label="Program"><div class="eyebrow">Program</div>' +
+    '<p style="font-size:1.0625rem;margin:.4rem 0"><b>' + esc(t.name) + '</b> · ' + t.weeks + ' weeks</p>' +
+    '<p class="muted" style="font-size:.9375rem;margin:0 0 .6rem">' + esc(names) + '. Each lifter runs their own copy with their own loads.' +
+    (p.isMinor ? ' A supervising adult is with you for every lift.' : '') + '</p>' +
+    '<button class="btn primary full tall" data-act="progSheet">Program ▸</button></div>';
 }
 function viewProgramDash(p, enr) {
   const today = isoDate();
