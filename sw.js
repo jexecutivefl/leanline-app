@@ -1,9 +1,9 @@
-/* LEANLINE service worker — build 7cf68d92ae46
+/* LEANLINE service worker — build 4d548627ccf1
    Assets are cache-first. The page itself (a navigation) is network-first with a
    short timeout and the cache as fallback (LL-651): an online open shows the
    newest build at once, an offline open still works from cache. No third party
    is ever contacted — every request here is same-origin. */
-const CACHE = "leanline-7cf68d92ae46";
+const CACHE = "leanline-4d548627ccf1";
 const NAV_TIMEOUT_MS = 4000;
 const ASSETS = ["./", "./index.html", "./manifest.webmanifest",
                 "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
@@ -20,16 +20,22 @@ self.addEventListener("activate", e => {
   );
 });
 
-function pageFromNetwork(req) {
+/* Every navigation inside the scope is answered with the app shell itself —
+   this is a single-page app, so that is the only page there is. The shell is
+   fetched by its own name, same-origin only, redirects refused, and cached only
+   when the response is a plain same-origin 200: nothing else can ever be
+   written into the shell's cache slot. */
+function pageFromNetwork() {
   const ctl = ("AbortController" in self) ? new AbortController() : null;
   const t = ctl ? setTimeout(() => ctl.abort(), NAV_TIMEOUT_MS) : null;
-  return fetch(req.url, ctl ? { signal: ctl.signal, cache: "no-store", credentials: "same-origin" } : { cache: "no-store", credentials: "same-origin" })
+  const init = { cache: "no-store", credentials: "same-origin", mode: "same-origin", redirect: "error" };
+  if (ctl) init.signal = ctl.signal;
+  return fetch("./index.html", init)
     .then(res => {
       if (t) clearTimeout(t);
-      if (res && res.status === 200) {
-        const copy = res.clone();
-        caches.open(CACHE).then(c => { c.put("./index.html", copy.clone()); c.put("./", copy); });
-      }
+      if (!res || res.status !== 200 || res.type !== "basic" || res.redirected) throw new Error("not the shell");
+      const copy = res.clone();
+      caches.open(CACHE).then(c => { c.put("./index.html", copy.clone()); c.put("./", copy); });
       return res;
     })
     .catch(() => caches.match("./index.html").then(hit => hit || caches.match("./")));
@@ -38,7 +44,7 @@ function pageFromNetwork(req) {
 self.addEventListener("fetch", e => {
   const req = e.request;
   if (req.method !== "GET") return;
-  if (req.mode === "navigate") { e.respondWith(pageFromNetwork(req)); return; }
+  if (req.mode === "navigate") { e.respondWith(pageFromNetwork()); return; }
   e.respondWith(
     caches.match(req).then(hit => {
       if (hit) return hit;
