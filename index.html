@@ -2981,7 +2981,7 @@ let S = null;
    so. pwa/build.mjs rewrites this ONE line with the commit count, the commit
    date and the build hash, so a phone can tell an old build from a new one
    without guessing. Nothing here is fetched; it is a constant. */
-const BUILD = {"n":98,"date":"2026-11-11","id":"7bc41a3ff26b"};
+const BUILD = {"n":100,"date":"2026-11-11","id":"70b240598bc4"};
 function buildLabel() {
   return BUILD.n ? "Version " + BUILD.n + " · " + BUILD.date + " · build " + BUILD.id : "Development copy — not an installed build";
 }
@@ -3519,7 +3519,9 @@ function viewSettings() {
     'Export after any session where you entered a lot.</p>' +
     '<div class="two"><button class="btn" data-act="export" data-what="all">Export all data</button>' +
     '<button class="btn" data-act="export" data-what="recipes">Export recipes</button></div>' +
-    '<div style="height:.5rem"></div><button class="btn full" data-act="importSheet">Import from JSON</button></div>';
+    '<div style="height:.5rem"></div><button class="btn full" data-act="importSheet">Import from JSON</button>' +
+    '<div style="height:.5rem"></div><button class="btn full" data-act="shareCoach">Send last 7 days to coach</button>' +
+    '<p class="muted" style="font-size:.8125rem;margin:.4rem 0 0">A small file: the last seven days of ticks, Top 3, reflections, meals, sets, weights and check-ins for everyone on this device. It opens the share sheet; nothing is sent by the app itself.</p></div>';
   /* LL-651: which build is this, and is there a newer one */
   h += '<div class="card"><div class="eyebrow">About</div>' +
     '<p class="num" style="font-size:1rem;margin:.4rem 0"><b>LEANLINE</b> · ' + esc(buildLabel()) + '</p>' +
@@ -4248,6 +4250,8 @@ function viewDay(p) {
   }
   h += '<p class="muted" style="font-size:.875rem;margin:.6rem 0">A missed box gets the next slot. It&rsquo;s data, not a verdict on you.</p>';
   h += '<div class="two"><button class="btn" data-act="tallySheet">This week</button><button class="btn" data-act="dayEditSheet" data-w="' + parseISO(d).getDay() + '">Edit this day&rsquo;s list</button></div>';
+  /* LL-653 */
+  h += '<button class="btn full" data-act="shareCoach" style="margin-top:.5rem">Send last 7 days to coach</button>';
   return h;
 }
 function sheetReflection(date) {
@@ -5958,6 +5962,64 @@ function currentRow(pid, date, nowMin) {
 function dayProgress(pid, date) {
   const rows = scheduleRows(pid, date).filter(r => !r.optional);
   return { done: rows.filter(r => r.done).length, total: rows.length };
+}
+/* LL-653. A coach needs the last few days, not the whole store. This is a
+   READ: it writes nothing a screen view would not already have created, and
+   it carries only what the window holds — ticks,
+   Top 3, reflections, meals, sets, weights, check-ins — for every profile on
+   the device, each under its own name. No personal copy lives here. */
+function daysBack(dateStr, n) { const dt = parseISO(dateStr); dt.setDate(dt.getDate() - n); return isoDate(dt); }
+function coachExport(toDate, days) {
+  const to = toDate || isoDate(), n = Math.max(1, Math.min(31, days || 7));
+  const dates = []; for (let i = n - 1; i >= 0; i--) dates.push(daysBack(to, i));
+  const from = dates[0];
+  const out = { leanline: "coach", schemaVersion: S.schemaVersion, exportedAt: new Date().toISOString(), build: BUILD, from, to, days: n, profiles: {} };
+  for (const p of Object.values(S.profiles)) {
+    const sc = (p.schedule && p.schedule.days) || {};
+    const logs = (S.logs && S.logs[p.id]) || {};
+    const tr = (S.training && S.training[p.id]) || {};
+    const met = (S.metrics && S.metrics[p.id]) || {};
+    const prof = { name: p.name, isMinor: !!p.isMinor, targets: { kcal: p.targets && p.targets.kcal, protein: p.targets && p.targets.protein }, days: {}, foods: {}, training: [], weight: [], checkins: {} };
+    const hadLogs = !!(S.logs && S.logs[p.id]);
+    for (const d of dates) {
+      const rec = sc[d] || null;
+      const hadDay = Object.prototype.hasOwnProperty.call(logs, d);
+      /* a profile without a day list (minors see Meals only) gets no rows — and no list is created for it */
+      const rows = (p.schedule ? scheduleRows(p.id, d) : []).filter(r => r.kind !== "meal").map(r => ({ id: r.id, kind: r.kind, label: r.label || r.title || "", tally: r.tally || null, optional: !!r.optional, done: !!r.done }));
+      prof.days[d] = {
+        rows, progress: p.schedule ? dayProgress(p.id, d) : null,
+        top3: rec && Array.isArray(rec.top3) ? rec.top3.map(x => ({ text: x.text || "", done: !!x.done })) : null,
+        reflection: rec && rec.reflection ? rec.reflection : null
+      };
+      const arr = Array.isArray(logs[d]) ? logs[d] : [];
+      prof.foods[d] = arr.map(e => ({ id: e.id, slotId: e.slotId, slot: ((p.slots || []).find(s => s.id === e.slotId) || {}).name || null, name: e.name, grams: e.grams, servings: e.servings,
+        kcal: e.macros ? e.macros.kcal : null, protein: e.macros ? e.macros.protein : null, carbs: e.macros ? e.macros.carbs : null, fat: e.macros ? e.macros.fat : null,
+        confidence: e.confidence || null, method: e.method || null }));
+      /* the row helpers read the food log through a lazy getter; undo any empty array it created */
+      if (!hadDay && S.logs && S.logs[p.id] && Array.isArray(S.logs[p.id][d]) && !S.logs[p.id][d].length) delete S.logs[p.id][d];
+    }
+    if (!hadLogs && S.logs && S.logs[p.id] && !Object.keys(S.logs[p.id]).length) delete S.logs[p.id];
+    for (const s of (tr.sessions || [])) if (s.date >= from && s.date <= to)
+      prof.training.push({ date: s.date, name: s.name, finishedAt: s.finishedAt || null, templateRef: s.templateRef || null, completedUnrecorded: !!s.completedUnrecorded,
+        entries: (s.entries || []).map(e => ({ exercise: e.exercise, exId: e.exId || null, minutes: e.minutes === undefined ? null : e.minutes, block: !!e.block, technique: e.technique || null, note: e.note || null, discomfort: !!e.discomfort,
+          sets: (e.sets || []).map(normSet) })) });
+    for (const w of (met.weight || [])) if (w.date >= from && w.date <= to) prof.weight.push({ date: w.date, lb: w.lb });
+    for (const [wk, c] of Object.entries(tr.checkins || {})) if (c && c.savedAt && String(c.savedAt).slice(0, 10) >= from) prof.checkins[wk] = c;
+    out.profiles[p.id] = prof;
+  }
+  return out;
+}
+/* Share sheet when the device has one (iOS: Mail, AirDrop, Drive, Files);
+   otherwise a plain download. Neither opens a socket from the app. */
+function shareJSON(filename, text, title) {
+  if (typeof navigator !== "undefined" && navigator.share && typeof File === "function") {
+    try {
+      const f = new File([text], filename, { type: "application/json" });
+      if (!navigator.canShare || navigator.canShare({ files: [f] })) return navigator.share({ files: [f], title }).then(() => true, () => false);
+    } catch (e) { /* fall through to download */ }
+  }
+  downloadFile(filename, text, "application/json");
+  return Promise.resolve(true);
 }
 function weekTally(pid, weekId) {
   const dates = weekDates(weekId);
@@ -8448,6 +8510,12 @@ const ACTS = {
     toast("Exported");
   },
   importSheet() { sheetImport(); },
+  /* LL-653 */
+  shareCoach() {
+    const payload = coachExport(isoDate(), 7);
+    shareJSON("leanline-coach-" + payload.from + "-to-" + payload.to + ".json", JSON.stringify(payload, null, 1), "LEANLINE — last 7 days")
+      .then(ok => { if (ok) toast("Last 7 days ready to send"); });
+  },
   exportDismiss() { UI.exportOffer = false; UI.exportDone = true; render(); },
   importFile(t) {
     const f = t.files && t.files[0]; if (!f) return;
