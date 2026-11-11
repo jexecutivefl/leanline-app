@@ -455,7 +455,8 @@ function migrate(st) {
        and the program flow will ask before it generates anything. */
     if (p.isMinor && p.schoolSC === undefined) p.schoolSC = { asked: false, exists: false, recordedOn: null, source: null };
     /* LL-648: every profile carries a day list; the public default is generic. */
-    if (p.schedule === undefined) p.schedule = defaultSchedule(p); else normalizeSchedule(p.schedule, p);
+    if (p.schedule === undefined) p.schedule = defaultSchedule(p);
+    normalizeSchedule(p.schedule, p);
   }
   for (const f of Object.values(st.foods || {})) if (f.per100g && f.per100g.fiber === undefined) f.per100g.fiber = null;
   backfillLibrary(st);                              // LL-623: new library items reach a device that already has data
@@ -3874,7 +3875,7 @@ function viewProgramBlock(p, d, e, enr, s, index, afterHeavy) {
     h += '<p class="prev num">' + esc(summary) + '</p>' + viewProgressionLine(p, e, d, enr);
     return h;
   }
-  if (!open) { h += '<p class="prev num">' + (sets.length ? esc(summary) : t.sets + ' sets planned') + '</p>'; return h; }
+  if (!open) { h += '<p class="prev num">' + (sets.length ? esc(summary) : esc(t.sets) + ' sets planned') + '</p>'; return h; }
   const pf = prefillFor(p, e, enr, d);
   h += '<p class="muted" style="font-size:.8125rem;margin:.2rem 0 0">' + esc((ex ? (ex.equipment.split(",")[0]) : "") + ' · weight is ' + loadLabel(ex)) + (t.perSide ? ' · reps are per side' : '') + (e.target.restAfter ? ' · rest after ' + esc(e.target.restAfter) : '') + '</p>';
   if (afterHeavy) h += '<p class="dense" style="margin:.4rem 0 0">Rest about 3–4 min after the heavy leg work before this one. <button class="chipbtn" data-act="restStartN" data-s="180">Start 3:00 rest</button></p>';
@@ -3896,13 +3897,13 @@ function viewSetRow(p, e, x, idx, pending, pf, setNo) {
   const t = e.target, key = e.exercise;
   const ed = UI.setEdit && UI.setEdit.ex === key && String(UI.setEdit.idx) === String(idx) ? UI.setEdit : null;
   const workingNo = pending ? setNo : (e.sets.slice(0, idx + 1).map(normSet).filter(y => !y.warmup).length);
-  const label = pending ? 'Set ' + setNo + ' · working · plan ' + t.min + '–' + t.max
+  const label = pending ? 'Set ' + setNo + ' · working · plan ' + esc(t.min) + '–' + esc(t.max)
     : (x.warmup ? 'Warm-up' : (x.status === "skipped" ? 'Set ' + workingNo + ' · skipped' : 'Set ' + workingNo + ' · working'));
   const lb = pending ? (ed ? ed.lb : pf.lb) : (ed ? ed.lb : x.lb);
   const reps = pending ? (ed ? ed.reps : pf.reps) : (ed ? ed.reps : x.reps);
   let h = '<div class="setrow"><div class="grow"><div class="muted" style="font-size:.8125rem">' + esc(label) + '</div>';
   if (!pending && x.status === "skipped") h += '<div class="muted">—</div>';
-  else h += '<div class="bignum">' + (lb == null || lb === "" ? '<span class="muted">— lb</span>' : R1(lb) + ' lb') + ' × ' + (reps == null ? '—' : reps) + '</div>';
+  else h += '<div class="bignum">' + (lb == null || lb === "" || !Number.isFinite(+lb) ? '<span class="muted">— lb</span>' : R1(+lb) + ' lb') + ' × ' + (reps == null ? '—' : esc(reps)) + '</div>';
   if (!pending && !ed) {
     const bits = [];
     if (x.rir != null) bits.push(x.rir + " in reserve");
@@ -3914,7 +3915,7 @@ function viewSetRow(p, e, x, idx, pending, pf, setNo) {
   h += '</div><div class="row" style="gap:.4rem">' +
     '<button class="btn sm" data-act="setEdit" data-ex="' + esc(key) + '" data-i="' + idx + '" aria-label="Edit ' + esc(label) + '">' + (ed ? 'Close' : 'Edit') + '</button>' +
     (pending
-      ? '<button class="logbtn" data-act="setDone" data-ex="' + esc(key) + '" data-i="' + idx + '" aria-pressed="false" aria-label="Mark ' + esc(label) + ' done at ' + (lb == null ? 'no weight' : R1(lb) + ' lb') + ' for ' + (reps == null ? '—' : reps) + ' reps"><span aria-hidden="true">✓</span><span>Done</span></button>'
+      ? '<button class="logbtn" data-act="setDone" data-ex="' + esc(key) + '" data-i="' + idx + '" aria-pressed="false" aria-label="Mark ' + esc(label) + ' done at ' + (lb == null ? 'no weight' : R1(lb) + ' lb') + ' for ' + (reps == null ? '—' : esc(reps)) + ' reps"><span aria-hidden="true">✓</span><span>Done</span></button>'
       : '<button class="logbtn" data-act="setUndo" data-ex="' + esc(key) + '" data-i="' + idx + '" aria-pressed="true" aria-label="' + esc(label) + ' logged. Tap to remove it."><span aria-hidden="true">✓</span><span>' + (x.status === "skipped" ? 'Skip' : 'Done') + '</span></button>') +
     '</div></div>';
   if (ed) h += viewSetEditor(p, e, ed, pending);
@@ -4079,9 +4080,9 @@ function sheetCycle(ordinal) {
     h += '<div style="margin-top:.3rem">' + r.session.entries.filter(e => e.sets.length).map(e => '<div class="item"><span class="grow"><span class="nm">' + esc(e.exercise) + '</span><br><span class="sub num">' + esc(entrySummary(e)) + '</span></span></div>').join("") + '</div>';
   }
   h += '<div class="stack" style="margin-top:.6rem">';
-  h += '<button class="btn full tall" data-act="cycleOpen" data-d="' + r.date + '">' + (r.status === "done" ? 'Open it' : (r.session ? 'Open to log' : 'Open and log it')) + '</button>';
+  h += '<button class="btn full tall" data-act="cycleOpen" data-d="' + esc(r.date) + '">' + (r.status === "done" ? 'Open it' : (r.session ? 'Open to log' : 'Open and log it')) + '</button>';
   if (r.status !== "done" && !(r.session && r.session.entries.some(e => e.sets.length))) h += '<button class="btn full" data-act="cycleUnrecorded" data-o="' + ordinal + '">' + (r.status === "unrecorded" ? '✓ Completed, details not recorded' : 'It happened — completed, details not recorded') + '</button>';
-  h += '<div class="field"><label for="cyDate">Planned date</label><input id="cyDate" type="date" value="' + r.date + '" data-act="cycleDate" data-o="' + ordinal + '"' + (r.status === "done" || r.status === "unrecorded" ? ' disabled aria-disabled="true"' : '') + '></div>';
+  h += '<div class="field"><label for="cyDate">Planned date</label><input id="cyDate" type="date" value="' + esc(r.date) + '" data-act="cycleDate" data-o="' + ordinal + '"' + (r.status === "done" || r.status === "unrecorded" ? ' disabled aria-disabled="true"' : '') + '></div>';
   h += '</div>';
   openSheet(h);
 }
@@ -4145,7 +4146,7 @@ function sheetProgram() {
   for (const r of rows.slice(from, from + 14)) {
     const locked = r.status === "done" || r.status === "unrecorded";
     h += '<tr><td>' + esc(r.name) + ' <span class="muted">wk ' + r.weekIndex + '</span></td><td>' + (locked ? esc(fmtDate(r.date)) + ' ✓' :
-      '<input type="date" value="' + r.date + '" data-act="rowDate" data-o="' + r.ordinal + '" aria-label="Date for ' + esc(r.name) + ' week ' + r.weekIndex + '" style="width:10.5rem">') + '</td></tr>';
+      '<input type="date" value="' + esc(r.date) + '" data-act="rowDate" data-o="' + r.ordinal + '" aria-label="Date for ' + esc(r.name) + ' week ' + r.weekIndex + '" style="width:10.5rem">') + '</td></tr>';
   }
   h += '</tbody></table><p class="muted" style="font-size:.75rem;margin:.3rem 0 .6rem">Fourteen days around the next workout shown.</p>';
   h += '<button class="btn full" data-act="reviewSheet">Review and renew</button><div style="height:.5rem"></div><button class="btn full danger" data-act="progEnd">End this program</button>' +
@@ -4222,14 +4223,14 @@ function sheetReflection(date) {
     h += '<div class="field"><label for="rf_' + k + '">' + lab + '</label><textarea id="rf_' + k + '" rows="2" maxlength="300" style="min-height:48px">' + esc(r[k] || "") + '</textarea></div>';
   if (blocks.length) {
     h += '<div class="field" style="margin-top:.6rem"><span class="muted" style="font-size:.8125rem">' + esc(L.block || "Work block") + ' $</span><div class="three" style="margin-top:.25rem">' +
-      blocks.map((b, i) => '<input class="num" type="number" inputmode="decimal" min="0" step="1" id="rf_b' + i + '" value="' + (r.money && r.money.blocks && r.money.blocks[i] != null ? r.money.blocks[i] : "") + '" aria-label="' + esc(L.block || "Work block") + ' ' + (i + 1) + ' dollars" placeholder="' + (i + 1) + '">').join("") + '</div></div>';
-    h += '<div class="two" style="margin-top:.5rem"><div class="field"><label for="rf_sh">' + esc(L.side || "Side work") + ' hours</label><input class="num" id="rf_sh" type="number" inputmode="decimal" min="0" step="0.5" value="' + (r.money && r.money.side && r.money.side.hrs != null ? r.money.side.hrs : "") + '"></div>' +
-      '<div class="field"><label for="rf_su">' + esc(L.side || "Side work") + ' $</label><input class="num" id="rf_su" type="number" inputmode="decimal" min="0" step="1" value="' + (r.money && r.money.side && r.money.side.usd != null ? r.money.side.usd : "") + '"></div></div>';
+      blocks.map((b, i) => '<input class="num" type="number" inputmode="decimal" min="0" step="1" id="rf_b' + i + '" value="' + esc(r.money && r.money.blocks && r.money.blocks[i] != null ? r.money.blocks[i] : "") + '" aria-label="' + esc(L.block || "Work block") + ' ' + (i + 1) + ' dollars" placeholder="' + (i + 1) + '">').join("") + '</div></div>';
+    h += '<div class="two" style="margin-top:.5rem"><div class="field"><label for="rf_sh">' + esc(L.side || "Side work") + ' hours</label><input class="num" id="rf_sh" type="number" inputmode="decimal" min="0" step="0.5" value="' + esc(r.money && r.money.side && r.money.side.hrs != null ? r.money.side.hrs : "") + '"></div>' +
+      '<div class="field"><label for="rf_su">' + esc(L.side || "Side work") + ' $</label><input class="num" id="rf_su" type="number" inputmode="decimal" min="0" step="1" value="' + esc(r.money && r.money.side && r.money.side.usd != null ? r.money.side.usd : "") + '"></div></div>';
   }
-  if (hasEvent) h += '<div class="field" style="margin-top:.5rem"><label for="rf_ev">' + esc(L.event || "Event") + ' $</label><input class="num" id="rf_ev" type="number" inputmode="decimal" min="0" step="1" value="' + (r.money && r.money.event != null ? r.money.event : "") + '"></div>';
+  if (hasEvent) h += '<div class="field" style="margin-top:.5rem"><label for="rf_ev">' + esc(L.event || "Event") + ' $</label><input class="num" id="rf_ev" type="number" inputmode="decimal" min="0" step="1" value="' + esc(r.money && r.money.event != null ? r.money.event : "") + '"></div>';
   if (!p.isMinor) {
     const w = (metricsOf(p.id).weight || []).find(x => x.date === date);
-    h += '<div class="field" style="margin-top:.5rem"><label for="rf_wt">Weight today, lb (saved to Progress)</label><input class="num" id="rf_wt" type="number" inputmode="decimal" min="0" step="0.1" value="' + (w ? w.lb : "") + '"></div>';
+    h += '<div class="field" style="margin-top:.5rem"><label for="rf_wt">Weight today, lb (saved to Progress)</label><input class="num" id="rf_wt" type="number" inputmode="decimal" min="0" step="0.1" value="' + esc(w ? w.lb : "") + '"></div>';
   }
   h += '<div style="height:.7rem"></div><button class="btn primary full tall" data-act="reflSave" data-d="' + date + '">Save</button>';
   openSheet(h);
@@ -4267,7 +4268,7 @@ function sheetDayEdit(wd) {
     h += '<div class="row" style="margin-top:.4rem;gap:.3rem">' +
       (r.kind === "reflection" ? '<span class="chipbtn muted" style="visibility:hidden" aria-hidden="true">▲</span><span class="chipbtn" style="visibility:hidden" aria-hidden="true">▼</span>'
         : '<button class="chipbtn" data-act="rowMove" data-id="' + esc(r.id) + '" data-d="-1" aria-label="Move ' + esc(name) + ' up">▲</button><button class="chipbtn" data-act="rowMove" data-id="' + esc(r.id) + '" data-d="1" aria-label="Move ' + esc(name) + ' down">▼</button>') +
-      '<span class="grow" style="font-size:.9375rem">' + esc(name) + '<br><span class="muted" style="font-size:.75rem">' + esc(r.kind) + (r.minutes ? ' · ' + r.minutes + ' min' : '') + (r.note ? ' · ' + r.note : '') + '</span></span>' +
+      '<span class="grow" style="font-size:.9375rem">' + esc(name) + '<br><span class="muted" style="font-size:.75rem">' + esc(r.kind) + (r.minutes ? ' · ' + esc(+r.minutes) + ' min' : '') + (r.note ? ' · ' + esc(r.note) : '') + '</span></span>' +
       (r.kind === "block" ? '' : '<button class="chipbtn" data-act="rowSheet" data-id="' + esc(r.id) + '" aria-label="Details for ' + esc(name) + '">…</button>') +
       (r.kind === "reflection" ? '' : '<button class="chipbtn" data-act="rowDel" data-id="' + esc(r.id) + '" aria-label="Remove ' + esc(name) + '">✕</button>') + '</div>';
   }
@@ -4284,7 +4285,7 @@ function sheetDayRow(wd, rowId) {
   const tm = m => m == null ? "" : String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
   let h = sheetHead(r.label || r.kind, r.kind + " · every " + DAYS[+wd]);
   h += '<div class="field"><label for="rwLabel">Name</label><input id="rwLabel" value="' + esc(r.label) + '" maxlength="120" data-act="rowField" data-f="label" data-id="' + esc(r.id) + '"></div>';
-  if (r.kind !== "reflection") h += '<div class="field"><label for="rwMin">Minutes (optional)</label><input id="rwMin" type="number" min="0" max="600" value="' + (r.minutes || "") + '" data-act="rowField" data-f="minutes" data-id="' + esc(r.id) + '"></div>';
+  if (r.kind !== "reflection") h += '<div class="field"><label for="rwMin">Minutes (optional)</label><input id="rwMin" type="number" min="0" max="600" value="' + esc(r.minutes || "") + '" data-act="rowField" data-f="minutes" data-id="' + esc(r.id) + '"></div>';
   h += '<div class="field"><label for="rwNote">Note under the row (optional)</label><input id="rwNote" value="' + esc(r.note || "") + '" maxlength="120" data-act="rowField" data-f="note" data-id="' + esc(r.id) + '"></div>';
   if (r.kind === "workout") h += '<div class="field"><label for="rwWith">Training partner (optional)</label><input id="rwWith" value="' + esc(r.with || "") + '" maxlength="40" data-act="rowField" data-f="with" data-id="' + esc(r.id) + '"></div>';
   if (r.kind === "event") h += '<div class="two"><div class="field"><label for="rwAt">Starts</label><input id="rwAt" type="time" value="' + tm(r.at) + '" data-act="rowField" data-f="at" data-id="' + esc(r.id) + '"></div><div class="field"><label for="rwUntil">Ends</label><input id="rwUntil" type="time" value="' + tm(r.until) + '" data-act="rowField" data-f="until" data-id="' + esc(r.id) + '"></div></div>';
@@ -5473,8 +5474,10 @@ function markCompletedUnrecorded(pid, ordinal) {
   return { ok: true };
 }
 function normSet(x) {
-  return { reps: x.reps, lb: x.lb, rpe: x.rpe, unit: x.unit || "lb", warmup: x.warmup === true, status: x.status || "completed",
-    rir: (x.rir == null ? null : x.rir), note: x.note || "", discomfort: !!x.discomfort, plannedReps: x.plannedReps, plannedLb: x.plannedLb, sideReps: x.sideReps || null };
+  const n = v => (Number.isFinite(+v) ? +v : 0), nn = v => (v == null || v === "" || !Number.isFinite(+v) ? null : +v);
+  return { reps: n(x.reps), lb: n(x.lb), rpe: nn(x.rpe), unit: x.unit === "kg" ? "kg" : "lb", warmup: x.warmup === true, status: x.status === "skipped" || x.status === "pending" ? x.status : "completed",
+    rir: nn(x.rir), note: String(x.note || "").slice(0, 200), discomfort: !!x.discomfort, plannedReps: nn(x.plannedReps), plannedLb: nn(x.plannedLb),
+    sideReps: Array.isArray(x.sideReps) && x.sideReps.length === 2 ? x.sideReps.map(n) : null };
 }
 const workingSets = e => (e.sets || []).map(normSet).filter(s => !s.warmup && s.status === "completed");
 function entryKeyOf(e) { return e.exId + "|" + e.dayKey + "|" + e.slot; }
@@ -5796,7 +5799,7 @@ function defaultSchedule(p) {
     if (wd === 0) rows.push({ id: "r_plan", kind: "task", label: "Plan the week and the store run, 35 min", at: 600, minutes: 35 });
     if (wd !== 0) rows.push({ id: "r_focus", kind: "task", label: "Focused work, 90 min", at: 660, minutes: 90, tally: "Focused work" });
     if (wd !== 0) rows.push({ id: "r_lift", kind: "workout", label: "Workout", at: 1020, tally: "Workout" });
-    rows.push({ id: "r_refl", kind: "reflection", label: "Night reflection. Three lines.", at: 1215 });
+    rows.push({ id: "r_refl", kind: "reflection", label: "Night reflection. Three lines.", at: 9999 });
     rows.push({ id: "r_wind", kind: "task", label: "Wind down. Teeth. Phone away.", at: 1230 });
     by[w] = rows;
   }
@@ -5806,7 +5809,29 @@ function defaultSchedule(p) {
 function normalizeSchedule(sc, p) {
   const d = defaultSchedule(p);
   sc.v = sc.v || 1;
-  sc.template = sc.template || d.template;
+  /* LL-650: whatever arrives (an old save, a full-state import, a hand-edited
+     file) is rebuilt through the whitelist validator; anything it refuses is
+     replaced by the starter list rather than rendered. */
+  const vt = sc.template ? validateTemplate(sc.template) : { ok: false };
+  sc.template = vt.ok ? vt.clean : d.template;
+  if (sc.previous) { const vp = validateTemplate(sc.previous); sc.previous = vp.ok ? vp.clean : null; }
+  if (sc.days && typeof sc.days === "object") {
+    const fin = v => (v === null || v === undefined || v === "" ? null : (Number.isFinite(+v) ? +v : null));
+    for (const k of Object.keys(sc.days)) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(k) || !sc.days[k] || typeof sc.days[k] !== "object") { delete sc.days[k]; continue; }
+      const dd = sc.days[k];
+      const ticks = {}; for (const [id, on] of Object.entries(dd.ticks || {})) if (SAFE_ID.test(id) || /^meal:[A-Za-z0-9_-]{1,24}$/.test(id)) ticks[id] = !!on;
+      dd.ticks = ticks;
+      dd.top3 = (Array.isArray(dd.top3) ? dd.top3 : []).slice(0, 3).map(x => ({ text: String((x && x.text) || "").slice(0, 120), done: !!(x && x.done) }));
+      while (dd.top3.length < 3) dd.top3.push({ text: "", done: false });
+      if (dd.reflection && typeof dd.reflection === "object") {
+        const r = dd.reflection, m = r.money || {};
+        dd.reflection = { done: String(r.done || "").slice(0, 300), blocked: String(r.blocked || "").slice(0, 300), tomorrow: String(r.tomorrow || "").slice(0, 300),
+          money: { blocks: (Array.isArray(m.blocks) ? m.blocks : []).slice(0, 6).map(fin), side: { hrs: fin(m.side && m.side.hrs), usd: fin(m.side && m.side.usd) }, event: fin(m.event) },
+          savedAt: fin(r.savedAt) };
+      } else dd.reflection = null;
+    }
+  }
   sc.template.labels = Object.assign({}, d.template.labels, sc.template.labels || {});
   sc.template.byWeekday = sc.template.byWeekday || {};
   sc.template.blocks = sc.template.blocks || {};
