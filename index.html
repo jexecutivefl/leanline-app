@@ -293,6 +293,21 @@ body.onbmode{padding-bottom:1rem;}
 .exblock:first-of-type{border-top:none;margin-top:.3rem;}
 .prev{font-size:.8125rem;color:var(--muted);margin:.2rem 0 0;font-family:var(--font-num);}
 .prev.muted{font-family:var(--font-ui);}
+/* ---------- program workout + day list (LL-647/648) ---------- */
+.screen-train{font-size:1.125rem;}
+.setrow{display:flex;align-items:center;gap:.6rem;padding:.45rem 0;border-top:1px solid var(--line);min-height:56px;}
+.bignum{font-family:var(--font-num);font-size:1.75rem;line-height:1.1;font-variant-numeric:tabular-nums;}
+.timer{font-family:var(--font-num);font-size:2.5rem;line-height:1;font-variant-numeric:tabular-nums;}
+.logbtn[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);}
+.btn[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent);}
+.slot .st.next{color:var(--accent);font-weight:700;letter-spacing:.06em;}
+.dock{
+  position:fixed;left:0;right:0;bottom:calc(57px + env(safe-area-inset-bottom));z-index:25;
+  background:var(--surface);border-top:1px solid var(--line);padding:.5rem .75rem;
+}
+.dock>*{max-width:720px;margin-left:auto;margin-right:auto;}
+body.docked{padding-bottom:calc(72px + 150px + env(safe-area-inset-bottom));}
+body.docked .toast{bottom:calc(80px + 150px + env(safe-area-inset-bottom));}
 .perish{font-size:.8125rem;color:var(--muted);margin:.1rem 0 .3rem 2.2rem;}
 .perish b{color:var(--warn);}
 .planhint{font-size:.8125rem;color:var(--muted);margin:.4rem 0 0;}
@@ -316,6 +331,8 @@ body.onbmode{padding-bottom:1rem;}
 </header>
 
 <main id="app"></main>
+
+<div id="dock"></div>
 
 <nav aria-label="Main">
   <button data-act="tab" data-tab="today"><span class="ni" aria-hidden="true">◉</span>Today</button>
@@ -423,7 +440,13 @@ function migrate(st) {
     const tr = st.training[pid];
     tr.program = tr.program || [];
     tr.sessions = tr.sessions || [];
+    /* LL-647: program containers. Absent on an old export = no program running. */
+    if (tr.enrollment === undefined) tr.enrollment = null;
+    if (tr.enrollmentHistory === undefined) tr.enrollmentHistory = [];
+    if (tr.rest === undefined) tr.rest = null;
+    if (tr.checkins === undefined) tr.checkins = {};
   }
+  installTemplates(st);                             // LL-647: templates are impersonal and reach every device
   for (const p of Object.values(st.profiles || {})) {
     if (p.dayTemplates === undefined) p.dayTemplates = { A: {}, B: {}, byWeekday: ["A", "A", "A", "A", "A", "B", "B"] };
     if (p.changeLog === undefined) p.changeLog = [];
@@ -431,6 +454,8 @@ function migrate(st) {
     /* LL-403: an old export has no school answer, so a minor counts as UNASKED
        and the program flow will ask before it generates anything. */
     if (p.isMinor && p.schoolSC === undefined) p.schoolSC = { asked: false, exists: false, recordedOn: null, source: null };
+    /* LL-648: every profile carries a day list; the public default is generic. */
+    if (p.schedule === undefined) p.schedule = defaultSchedule(p); else normalizeSchedule(p.schedule, p);
   }
   for (const f of Object.values(st.foods || {})) if (f.per100g && f.per100g.fiber === undefined) f.per100g.fiber = null;
   backfillLibrary(st);                              // LL-623: new library items reach a device that already has data
@@ -570,6 +595,7 @@ const SHOP = {
   f_chkc: { aisle: "Meat", buyAs: { foodId: "f_chkr", basis: "kcal" } },
   f_sirloin: { aisle: "Meat", perishDays: 1 },                              // 03_WEEK_01: cook Sunday, Monday at the latest
   f_egg: { aisle: "Dairy", countUnit: { grams: 50, one: "large egg", many: "large eggs" }, pack: { grams: 600, label: "dozen" } },
+  f_buttermilk: { aisle: "Dairy", perishDays: 14, perishNote: "check the date on the carton" },
   f_milk: { aisle: "Dairy", liquid: { gramsPerGallon: GAL_G_MILK, unit: "gal" }, perishNote: "over two gallons in one shop — check the date on every jug, or buy in two trips" },
   f_cottage: { aisle: "Dairy" },
   f_sourcream: { aisle: "Dairy" },
@@ -695,12 +721,13 @@ function seedFoods() {
     F("f_salsa", "Salsa, ready-to-serve", 29, 1.5, 6.6, 0.2, 1.8, "verified", USDA + " Foundation 746777 'Sauce, salsa, ready-to-serve', 29 kcal/100 g. Fiber 1.8 g, retrieved 2026-08-22"),
     F("f_tomsauce", "Tomato sauce, canned plain", 24, 1.2, 5.3, 0.2, 1.5, "verified", srl(170054, "Tomato products, canned, sauce", "24 kcal/100 g, identical to this record. Fiber 1.5 g")),
     F("f_beans", "Black beans, canned, drained", 91, 6.0, 16.6, 0.3, 6.9, "verified", srl(175238, "Beans, black, mature seeds, canned, low sodium", "91 kcal, 6.03 P, 16.6 C, 0.29 F — all four match this record. Fiber 6.9 g")),
-    F("f_pepper", "Bell pepper, raw", 31, 1.0, 6.0, 0.3, 2.1, "verified", srl(170108, "Peppers, sweet, red, raw", "0.99 P, 6.03 C, 0.30 F — the macros match this record exactly and rule out the green and yellow entries. Fiber 2.1 g. CAVEAT: SR Legacy puts this at 26 kcal/100 g, not the 31 carried here")),
+    F("f_pepper", "Bell pepper, raw", 26, 1.0, 6.0, 0.3, 2.1, "verified", srl(170108, "Peppers, sweet, red, raw", "26 kcal, 0.99 P, 6.03 C, 0.30 F — all four match this record. Fiber 2.1 g. CAVEAT: this record carried 31 kcal until 2026-09-24 (LL-606), ~19% high; the 26 kcal figure is the USDA one.")),
     F("f_onion", "Onion, raw", 40, 1.1, 9.3, 0.1, 1.7, "verified", srl(170000, "Onions, raw", "40 kcal/100 g, identical to this record. Fiber 1.7 g")),
     F("f_broccoli", "Broccoli, raw", 34, 2.8, 6.6, 0.4, 2.6, "verified", srl(170379, "Broccoli, raw", "34 kcal/100 g, identical to this record. Fiber 2.6 g")),
     F("f_greenbean", "Green beans, raw", 31, 1.8, 7.0, 0.2, 2.7, "verified", srl(169961, "Beans, snap, green, raw", "31 kcal/100 g, identical to this record. Fiber 2.7 g")),
     F("f_mushroom", "Mushroom, white, raw", 22, 3.1, 3.3, 0.3, 1.0, "verified", srl(169251, "Mushrooms, white, raw", "22 kcal/100 g, identical to this record. Fiber 1.0 g")),
     F("f_milk", "Whole milk", 61, 3.2, 4.8, 3.3, 0, "verified", USDA, { portionHints: [{ label: "1 cup", grams: 244 }] }),
+    F("f_buttermilk", "Buttermilk, low-fat cultured", 40, 3.3, 4.8, 0.9, 0, "estimated", "USDA FoodData Central low-fat cultured buttermilk (~40 kcal / 100 g); brands run 100-110 kcal per cup — check the carton. Added 2026-10-13 for the adult's Mashed Potatoes.", { portionHints: [{ label: "1 cup", grams: 245 }] }),
     F("f_cottage", "Cottage cheese, 4%", 98, 11.1, 3.4, 4.3, 0, "verified", USDA),
     F("f_sourcream", "Sour cream, regular", 198, 2.4, 4.6, 19.4, 0, "verified", USDA, { dense: true }),
     F("f_apple", "Apple, with skin", 52, 0.3, 13.8, 0.2, 2.4, "verified", srl(171688, "Apples, raw, with skin", "52 kcal/100 g, identical to this record. Fiber 2.4 g") + " the adult buys GALA (2026-08-26): the gala-specific record 168204 reads 57 kcal / 2.3 fiber with 1 medium = 172 g. This entry stays USDA's generic apple — a 5 kcal/100 g difference — until he wants the swap.", { portionHints: [{ label: "1 medium", grams: 182 }] }),
@@ -1078,22 +1105,32 @@ function seedRecipes() {
      this recipe does not have. Confidence resolves itself — f_mexcheese is
      estimated, so weakest-wins makes the whole recipe estimated until the adult
      puts his cheese label in. */
+  /* 2026-10-13 — the adult's real recipe replaces the placeholder (the adult said
+     2026-10-13: "we will use your recipe you made next time … inspired by some
+     of the top southern cooking chefs and make sure its relitively healthy").
+     Southern buttermilk-mash method (Southern Living / Martha Stewart style):
+     Yukon Golds, garlic boiled in the water, steam-dry, buttermilk for the tang
+     so the butter can be cut to 2 tbsp, nonfat Greek yogurt for body. Cheese is
+     NOT in the batch: he tops a cup with 1/8 cup Mexican blend, logged alone. */
   add({
-    id: "r_mashpot", name: "Mashed Potatoes (home-made)", servings: 5, prepMin: 30,
+    id: "r_mashpot", name: "the adult's Southern Buttermilk Mashed Potatoes", servings: 7, prepMin: 35,
     ingredients: [
-      { foodId: "f_potato", rawGrams: 1000, note: "peeled weight, before boiling" },
-      { foodId: "f_butter", rawGrams: 60, note: "~4 tbsp — CHANGE THIS to your actual stick" },
-      { foodId: "f_mexcheese", rawGrams: 100, note: "shredded, stirred in off heat" }
+      { foodId: "f_potato", rawGrams: 1135, note: "2.5 lb Yukon Gold, peeled weight" },
+      { foodId: "f_garlic", rawGrams: 12, note: "4 cloves, peeled, boiled with the potatoes" },
+      { foodId: "f_butter", rawGrams: 28, note: "2 tbsp — measure it, this is the number that moves" },
+      { foodId: "f_buttermilk", rawGrams: 245, note: "1 cup low-fat, warmed" },
+      { foodId: "f_chobani", rawGrams: 120, note: "1/2 cup plain nonfat Greek yogurt, room temp" }
     ],
     method: [
-      "THESE WEIGHTS ARE A PLACEHOLDER. Edit the three ingredient amounts to match your pot once, and every meal built on this recipe is right from then on. The butter is the one that moves the number most.",
-      "Peel, cube, cover with cold water, boil ~18 min until a fork goes through with no resistance.",
-      "Drain properly and let them steam dry in the hot pot for a minute. Wet potatoes make glue.",
-      "Butter in first, mash. Salt and pepper to taste — neither adds a calorie.",
-      "Cheese in off the heat, stir until it disappears.",
-      "Weigh the finished pot and divide by 5, or change the serving count to however many you actually got."
+      "Peel the Yukons, cut into even 2-inch chunks. Into a pot with the 4 garlic cloves, cover with COLD water by an inch, add 1 tbsp salt.",
+      "Bring to a boil, then simmer ~15-18 min until a fork slides through with no resistance.",
+      "Drain. Put the potatoes and garlic back in the hot pot over low heat for 1-2 min, shaking, until they look dry and chalky. Dry potatoes = fluffy, wet = glue.",
+      "While they boil, warm the buttermilk with the butter in a small pan (or 45 s in the microwave) until the butter melts. Do not boil it or it splits.",
+      "Mash the potatoes and garlic (a ricer or hand masher, never a blender). Pour in the warm buttermilk-butter a little at a time.",
+      "Stir in the Greek yogurt off the heat. Salt and black pepper to taste, plus chopped chives if you have them (no calories worth counting).",
+      "Makes about 7 cups. Weigh the finished pot once and type it into Cooked weight so every cup after this is exact."
     ],
-    expectedCookedG: null, actualCookedG: null,
+    expectedCookedG: 1540, actualCookedG: null,
     holdsDays: 4, freezes: false, carFriendly: false
   });
   /* ---- LL-634, 2026-08-26. the adult re-sent his full meal list and the bank had
@@ -1359,7 +1396,8 @@ function seedState() {
   const people = seedPeople();
   return Object.assign({
     schemaVersion: 1,
-    settings: { theme: "dark", textScale: 1, units: "imperial", weekStartsOn: 1 },
+    settings: { theme: "dark", textScale: 1, units: "imperial", weekStartsOn: 1, restTimer: true, restAutoStart: true, restSound: true, restVibrate: true },
+    programs: installTemplates({ programs: {} }).programs,
     foods: seedFoods(),
     recipes: seedRecipes(),
     plans: {},
@@ -2945,7 +2983,9 @@ const UI = {
   distress: false, onb: null,
   /* Testing FIX 9b. Session-only on purpose: it is never written to storage,
      so it cannot follow anyone across days and become a nag. */
-  writes: 0, exportOffer: false, exportDone: false
+  writes: 0, exportOffer: false, exportDone: false,
+  /* LL-647/648 screen state — never saved */
+  todayView: null, exOpen: null, setEdit: null, extraPending: {}, ck: null, ckEdit: false, swap: null, swapEx: null, editWd: "1", copyTo: {}
 };
 const EXPORT_AFTER = 15;   // entries in one sitting before the offer appears, once
 function noteWrite(n) {
@@ -3002,12 +3042,15 @@ function render() {
     if (b.dataset.tab === UI.tab) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
   });
   const app = el("app");
-  app.className = UI.tab === "today" ? "screen-today" : "";
+  app.className = UI.tab === "today" ? "screen-today" : (UI.tab === "train" ? "screen-train" : "");
+  rememberFocus();
   if (!UI.onb && !p) UI.onb = onbDefaults();     // nobody here: there is nothing else to show
   if (UI.onb) {
     document.body.classList.add("onbmode");
     app.className = "";
     app.innerHTML = viewStorageWarning() + viewOnboarding();
+    const dk0 = el("dock"); if (dk0) dk0.innerHTML = "";
+    document.body.classList.remove("docked");
     return;
   }
   document.body.classList.remove("onbmode");
@@ -3022,6 +3065,10 @@ function render() {
   if (UI.tab === "today" && UI.animated) requestAnimationFrame(paintGauges);
   else if (UI.tab === "today") paintGauges();
   if (UI.tab === "plan") restorePlanScroll();
+  const dock = viewDock(p);
+  const dk = el("dock"); if (dk) dk.innerHTML = dock;
+  if (dock) document.body.classList.add("docked"); else document.body.classList.remove("docked");
+  restoreFocus();
 }
 
 /* Switching the profile tab rebuilds the grid; the position in a 7-day
@@ -3044,7 +3091,7 @@ function viewStub(name, stage, what) {
 }
 
 /* ---------- Today ---------- */
-function viewToday(p) {
+function viewMeals(p) {
   const d = UI.date;
   const { t, confidence, fiberComplete, count } = dayTotals(p.id, d);
   const tg = p.targets;
@@ -3415,6 +3462,26 @@ function viewSettings() {
       '<button class="chipbtn" data-act="setWeekStart" data-v="' + v + '" aria-pressed="' + (S.settings.weekStartsOn === v) + '">' + l + '</button>').join("")) +
     '</div>';
 
+  /* LL-647: rest timer */
+  const onoff = (k, labels) => [["1", labels ? labels[0] : "On"], ["0", labels ? labels[1] : "Off"]].map(([v, l]) =>
+    '<button class="chipbtn" data-act="restPref" data-k="' + k + '" data-v="' + v + '" aria-pressed="' + ((S.settings[k] !== false) === (v === "1")) + '">' + l + '</button>').join("");
+  h += '<div class="card"><div class="eyebrow">Rest timer</div>' +
+    prefRow("Rest timer", onoff("restTimer")) +
+    prefRow("Start it", onoff("restAutoStart", ["When I mark a set done", "I'll start it myself"])) +
+    prefRow("Alert sound", onoff("restSound")) +
+    prefRow("Vibration", onoff("restVibrate")) +
+    '<p class="muted" style="font-size:.8125rem;margin:.5rem 0 .4rem">Alerts play while the app is open. The timer keeps correct time in the background either way — it counts from the clock, not from ticks.</p>' +
+    '<button class="btn" data-act="restTest">Test the alert</button></div>';
+  /* LL-648: the day list (adult profiles) */
+  if (!p.isMinor) {
+    h += '<div class="card"><div class="eyebrow">Day list — ' + esc(p.name) + '</div>' +
+      prefRow("Today opens on", [["day", "Day list"], ["meals", "Meals"]].map(([v, l]) =>
+        '<button class="chipbtn" data-act="todayOpens" data-v="' + v + '" aria-pressed="' + ((p.todayOpens || "day") === v) + '">' + l + '</button>').join("")) +
+      '<div class="two" style="margin-top:.6rem"><button class="btn" data-act="dayEditSheet" data-w="' + parseISO(UI.date).getDay() + '">Edit the list</button><button class="btn" data-act="schedExport">Export my list</button></div>' +
+      '<div class="two" style="margin-top:.5rem"><button class="btn" data-act="importSheet">Import a list</button><button class="btn" data-act="schedReset">Starter list</button></div>' +
+      '<p class="muted" style="font-size:.8125rem;margin:.4rem 0 0">A list file replaces the rows and blocks only. Ticks, reflections, meals and logs are never touched by it.</p></div>';
+  }
+
   /* minor guardrails, stated */
   const minors = Object.values(S.profiles).filter(x => x.isMinor && x.provisionalTargets);
   if (!p.isMinor && minors.length) {
@@ -3458,7 +3525,7 @@ function prefRow(label, chips) {
 }
 
 /* ---------- Train (spec §4.4) ---------- */
-function viewTrain(p) {
+function viewTrainLegacy(p) {
   const d = UI.date;
   const sched = scheduledFor(p.id, d);
   const s = sessionOn(p.id, d);
@@ -3630,6 +3697,606 @@ function sheetAddExercise() {
     '<div class="wrap" style="margin-top:.4rem">' +
     DE_SUPPLEMENTAL.map(n => '<button class="chipbtn" data-act="exPick" data-n="' + esc(n) + '">' + esc(n) + '</button>').join("") + '</div>';
   h += '<div style="height:.7rem"></div><button class="btn primary full tall" data-act="exSave">Add it</button>';
+  openSheet(h);
+}
+
+/* ---------- Train with a program (LL-647) ---------- */
+function loadLabel(ex) { return ex ? (LOAD_LABEL[ex.load] || "") : ""; }
+function exName(id) { return EXERCISES[id] ? EXERCISES[id].name : id; }
+function fmtRange(t) { return t.sets + " × " + t.min + "–" + t.max + (t.perSide ? " per side" : "") + " · rest " + fmtSec(t.rest) + " · about " + (t.rirTarget != null ? t.rirTarget : 2) + " in reserve"; }
+function viewTrain(p) {
+  const enr = activeEnrollment(p.id);
+  if (!enr) return viewTrainLegacy(p) ;
+  const d = UI.date;
+  const s = sessionOn(p.id, d);
+  const row = rowOf(p.id, d);
+  let h = "";
+  if (s && s.templateRef && !s.finishedAt) return viewProgramSession(p, s, enr) + viewTrainHistory(p);
+  h += viewProgramDash(p, enr);
+  if (s && s.finishedAt) h += viewFinishedSession(p, s, enr);
+  else if (s && !s.templateRef) h += viewTrainLegacySession(p, s);
+  h += viewCheckin(p);
+  h += viewTrends(p);
+  h += '<button class="btn full" data-act="progSheet">Program ▸</button>';
+  h += viewTrainHistory(p);
+  return h;
+}
+function viewProgramDash(p, enr) {
+  const today = isoDate();
+  const nx = nextWorkout(p.id, today);
+  const t = programOf(enr.templateKey);
+  const rowToday = rowOf(p.id, UI.date);
+  const kToday = dayKeyOn(p.id, UI.date);
+  let h = '<div class="card" role="region" aria-label="Next workout"><div class="eyebrow">Next workout</div>';
+  if (!nx) {
+    const rv = weekReview(p.id, today);
+    h += '<p style="margin:.4rem 0 0;font-size:1.5rem;font-weight:700">Cycle complete</p>' +
+      '<p class="muted" style="margin:.2rem 0 .6rem;font-size:.9375rem">' + esc(t.name) + ' · ' + (rv ? rv.done + ' of ' + rv.planned + ' sessions logged' : '') + '</p>' +
+      '<button class="btn primary full tall" data-act="reviewSheet">See the 8-week review</button></div>';
+    return h;
+  }
+  h += '<p style="margin:.4rem 0 0;font-size:1.5rem;font-weight:700">' + esc(nx.name) + '</p>' +
+    '<p class="muted" style="margin:.2rem 0 0;font-size:.9375rem">' + esc(t.name) + ' · week ' + nx.weekIndex + ' of ' + t.weeks + ' · about ' + sessionEstimateMin(enr, nx.dayKey) + ' min</p>';
+  const after = scheduleFor(p.id, today).filter(r => r.ordinal > nx.ordinal).slice(0, 2);
+  if (after.length) h += '<p class="muted" style="margin:.2rem 0 0;font-size:.875rem">Then: ' + after.map(r => esc(r.name) + " " + esc(fmtDate(r.date))).join(" · ") + '</p>';
+  if (nx.lateDays > 0) h += '<p class="dense" style="margin:.6rem 0 0">' + esc(nx.name) + ' was planned for ' + esc(fmtDate(nx.date)) + '. It is still your next workout.</p>';
+  if (nx.shiftOffer && !(enr.keep && enr.keep["shift:" + nx.ordinal])) h += '<div class="wrap" style="margin-top:.5rem">' +
+    '<button class="chipbtn" data-act="shiftSheet" data-o="' + nx.ordinal + '">Move the remaining days</button>' +
+    '<button class="chipbtn" data-act="shiftKeep" data-o="' + nx.ordinal + '">Leave the dates</button></div>';
+  if (kToday === "rest") {
+    h += '<p style="margin:.6rem 0 0;font-size:1rem"><b>' + esc(fmtDate(UI.date)) + ' is a rest day.</b> <span class="muted">Optional easy walking and mobility. It is not a lifting session and nothing is counted against it.</span></p>';
+    const blocks = scheduledFor(p.id, UI.date).filter(x => (x.blocks || []).some(b => b.kind === "block"));
+    if (blocks.length) h += '<p class="muted" style="margin:.3rem 0 0;font-size:.875rem">Optional today: ' + esc(blocks.map(b => b.name).join(", ")) + '. <button class="chipbtn" data-act="sessionStart">Log it</button></p>';
+  } else if (rowToday && kToday) {
+    const sToday = sessionOn(p.id, UI.date);
+    const label = sToday && sToday.finishedAt ? null : (sToday ? "Resume " + esc(dayTitle(enr, kToday)) : "Start " + esc(dayTitle(enr, kToday)));
+    if (label) h += '<div style="height:.6rem"></div><button class="btn primary full tall" data-act="progStart">' + label + '</button>';
+    if (UI.date !== nx.date && !(sToday && sToday.finishedAt)) h += '<p class="muted" style="font-size:.8125rem;margin:.4rem 0 0">' + esc(fmtDate(UI.date)) + ' is ' + esc(dayTitle(enr, kToday)) + ' on the plan; the next unfinished one is ' + esc(nx.name) + '.</p>';
+  } else if (!rowToday) {
+    h += '<p class="muted" style="margin:.6rem 0 0;font-size:.9375rem">' + esc(fmtDate(UI.date)) + ' is outside the program dates. Log anything you did with Start a session below.</p>' +
+      '<div style="height:.6rem"></div><button class="btn full" data-act="sessionStart">Start a session</button>';
+  }
+  if (UI.date !== nx.date && nx.date !== today) h += '<p class="muted" style="font-size:.8125rem;margin:.4rem 0 0">Open ' + esc(fmtDate(nx.date)) + ' on the date to start ' + esc(nx.name) + '.</p>';
+  if (p.isMinor) h += '<p class="dense" style="margin:.6rem 0 0">Technique first. A supervising adult is with you for every lift, and the weight is yours alone — nobody else&rsquo;s numbers apply.</p>';
+  h += '</div>';
+  /* this cycle: the five lifting days of the week the next workout is in */
+  const wk = nx.weekIndex;
+  const rows = scheduleFor(p.id, today).filter(r => r.weekIndex === wk);
+  const lifts = rows.filter(r => r.kind === "lift");
+  h += '<div class="card" role="region" aria-label="This cycle"><div class="eyebrow">This cycle · week ' + wk + ' · ' + lifts.filter(r => r.status === "done" || r.status === "unrecorded").length + ' of ' + lifts.length + ' sessions</div><div class="wrap" style="margin-top:.5rem">';
+  for (const r of lifts) {
+    const done = r.status === "done" || r.status === "unrecorded";
+    h += '<button class="chipbtn" data-act="cycleSheet" data-o="' + r.ordinal + '" aria-pressed="' + done + '" aria-label="' + esc(r.name) + ', ' + esc(fmtDate(r.date)) + ', ' + r.status + '">' + (done ? '✓ ' : '') + esc(r.name) + '</button>';
+  }
+  h += '</div><p class="muted" style="font-size:.8125rem;margin:.4rem 0 0">Rest days: ' + esc(rows.filter(r => r.kind === "rest").map(r => fmtDate(r.date)).join(", ") || "—") + '</p></div>';
+  return h;
+}
+function viewCheckin(p) {
+  const wid = weekIdOf(isoDate());
+  const c = checkinOf(p.id, wid);
+  let h = '<div class="card" role="region" aria-label="Recovery check-in"><div class="eyebrow">Recovery check-in · this week</div>';
+  if (c && !UI.ckEdit) {
+    h += '<p style="margin:.4rem 0 0;font-size:.9375rem">' + esc(c.fatigue) + ' · joints ' + esc(c.joints.toLowerCase()) + ' <button class="btn sm" data-act="ckEdit">Change</button></p>';
+    if (c.fatigue === "Tired" || c.fatigue === "Wiped" || c.joints === "Sharp") h += '<p class="dense" style="margin:.5rem 0 0">A lighter session is a fair call this week — fewer working sets, same exercises. Sharp pain is a reason to swap or skip an exercise. Nothing changes unless you change it.</p>';
+    return h + '</div>';
+  }
+  const f = UI.ck ? UI.ck.fatigue : null, j = UI.ck ? UI.ck.joints : null;
+  h += prefRow("Tiredness", ["Fresh", "OK", "Tired", "Wiped"].map(v => '<button class="chipbtn" data-act="ckSet" data-k="fatigue" data-v="' + v + '" aria-pressed="' + (f === v) + '">' + v + '</button>').join(""));
+  h += prefRow("Joints", ["None", "Mild", "Sharp"].map(v => '<button class="chipbtn" data-act="ckSet" data-k="joints" data-v="' + v + '" aria-pressed="' + (j === v) + '">' + v + '</button>').join(""));
+  h += '<div style="height:.5rem"></div><button class="btn full" data-act="ckSave"' + (f && j ? '' : ' disabled aria-disabled="true"') + '>Save check-in</button></div>';
+  return h;
+}
+function viewTrends(p) {
+  const rows = trendRows(p.id);
+  let h = '<div class="card" role="region" aria-label="Trends"><div class="eyebrow">Trends · best working set, actual records only</div>';
+  if (!rows.length) return h + '<p class="muted" style="margin:.4rem 0 0;font-size:.9375rem">A trend shows after two finished sessions of an exercise.</p></div>';
+  h += '<table class="mono-table" style="margin-top:.4rem"><thead><tr><th scope="col">Exercise</th><th scope="col">First</th><th scope="col">Latest</th></tr></thead><tbody>';
+  for (const r of rows.slice(0, 12)) h += '<tr><td>' + esc(r.name) + '</td><td>' + R(r.first.lb) + '×' + r.first.reps + '</td><td>' + R(r.last.lb) + '×' + r.last.reps + '</td></tr>';
+  h += '</tbody></table><p class="muted" style="font-size:.75rem;margin:.3rem 0 0">Different exercises and machines are never compared with each other.</p></div>';
+  return h;
+}
+function viewFinishedSession(p, s, enr) {
+  let h = '<div class="card"><div class="eyebrow">' + esc(s.name) + ' · ' + esc(fmtDate(s.date)) + (s.completedUnrecorded ? ' · completed, details not recorded' : ' · finished') + '</div>';
+  if (s.completedUnrecorded) h += '<p class="muted" style="margin:.5rem 0 0;font-size:.9375rem">It happened; nothing about it was written down. Reopen to add what you actually did — nothing is filled in for you.</p>';
+  else if (!s.entries.some(e => e.sets.length)) h += '<p class="muted" style="margin:.5rem 0 0;font-size:.9375rem">Nothing was logged.</p>';
+  else {
+    h += '<div style="margin-top:.5rem">';
+    for (const e of s.entries) {
+      h += '<div class="item"><span class="grow"><span class="nm">' + esc(e.exercise) + '</span><br><span class="sub num">' + esc(entrySummary(e)) + '</span></span></div>';
+      if (e.target) h += viewProgressionLine(p, e, s.date, enr);
+    }
+    h += '</div>';
+  }
+  const nx = nextWorkout(p.id, isoDate());
+  if (nx) h += '<p class="muted" style="margin:.5rem 0 0;font-size:.9375rem">Next: ' + esc(nx.name) + ' on ' + esc(fmtDate(nx.date)) + '.</p>';
+  h += '<div style="height:.5rem"></div><button class="btn full" data-act="sessionReopen">Reopen this session</button></div>';
+  return h;
+}
+function viewTrainLegacySession(p, s) {
+  let h = '<div class="card"><div class="eyebrow">' + esc(s.name) + '</div>';
+  if (!s.entries.length) h += '<p class="muted" style="margin:.5rem 0 0;font-size:.9375rem">Nothing logged yet.</p>';
+  for (const e of s.entries) h += viewExerciseBlock(p, UI.date, e);
+  h += '<div style="height:.5rem"></div><button class="btn full" data-act="exAdd">＋ Add an exercise</button></div>';
+  h += '<button class="btn primary full tall" data-act="sessionFinish">Finish workout</button>';
+  return h;
+}
+function viewProgramSession(p, s, enr) {
+  const d = UI.date, ref = s.templateRef;
+  const t = programOf(enr.templateKey);
+  const tplEntries = s.entries.filter(e => e.target);
+  const doneN = tplEntries.filter(e => e.done).length;
+  let h = '<div class="card"><div class="eyebrow">' + esc(t.name) + ' · week ' + ref.weekIndex + ' of ' + t.weeks + '</div>' +
+    '<p style="margin:.3rem 0 0;font-size:1.375rem;font-weight:700">' + esc(s.name) + '</p>' +
+    '<p class="muted" style="margin:.15rem 0 0;font-size:.9375rem">' + esc(fmtDate(d)) + ' · exercise ' + Math.min(doneN + 1, tplEntries.length) + ' of ' + tplEntries.length + ' · about ' + sessionEstimateMin(enr, ref.dayKey) + ' min</p>' +
+    '<p class="dense" style="margin:.5rem 0 0">Logging for <b>' + esc(p.name) + '</b>. ' + (p.isMinor ? 'Technique first; a supervising adult is present.' : 'Warm up first: 5 easy minutes, then ' + esc(warmupText(p.id, ref.dayKey, 0, plannedLoad(p.id, (slotExercise(enr, ref.dayKey, 0) || {}).exId, ref.dayKey, 0)).toLowerCase())) + '</p>';
+  if (!UI.exOpen || !s.entries.some(e => e.exercise === UI.exOpen && !e.done)) {
+    const first = s.entries.find(e => !e.done && (e.target || e.locked));
+    UI.exOpen = first ? first.exercise : null;
+  }
+  h += '</div>';
+  let prevHeavy = false;
+  s.entries.forEach((e, i) => {
+    if (e.target) {
+      h += '<div class="card">' + viewProgramBlock(p, d, e, enr, s, i, prevHeavy) + '</div>';
+      prevHeavy = /squat|deadlift|press$/i.test(e.exercise) && (e.exId === "bb_squat" || e.exId === "trap_dl" || e.exId === "hack_squat" || e.exId === "leg_press");
+    } else {
+      h += '<div class="card">' + viewExerciseBlock(p, d, e) + '</div>';
+    }
+  });
+  h += '<button class="btn full" data-act="exAdd">＋ Add something else</button>';
+  h += '<div style="height:.5rem"></div><button class="btn primary full tall" data-act="finishSheet">Finish workout</button>';
+  return h;
+}
+function prefillFor(p, e, enr, d) {
+  const ws = (e.sets || []).map(normSet).filter(x => !x.warmup && x.status === "completed");
+  const planned = plannedLoad(p.id, e.exId, e.dayKey, e.slot);
+  const hist = historyFor(p.id, e.exId, e.dayKey, e.slot, d);
+  const prevSets = hist.length ? hist[0].sets : [];
+  let lb = null, reps = null, why = "";
+  if (ws.length) { lb = ws[ws.length - 1].lb; reps = ws[ws.length - 1].reps; why = "same as your last set"; }
+  else if (planned != null) { lb = planned; reps = e.target.min; why = "the weight you accepted last time; start at the bottom of the range"; }
+  else if (prevSets.length) { lb = prevSets[0].lb; reps = Math.min(e.target.max, Math.max(e.target.min, prevSets[0].reps)); why = "last time's first set"; }
+  else { reps = e.target.max; why = "no weight on record yet — type one"; }
+  return { lb, reps, why, planned, prevSets, histDate: hist.length ? hist[0].date : null };
+}
+function viewProgramBlock(p, d, e, enr, s, index, afterHeavy) {
+  const t = e.target, ex = EXERCISES[e.exId];
+  const open = UI.exOpen === e.exercise && !e.done;
+  const sets = e.sets || [];
+  const summary = entrySummary(e);
+  let h = '<div class="row"><span class="grow"><b style="font-size:1.0625rem">' + esc(e.exercise) + '</b>' + (e.done ? ' <span class="muted" style="font-size:.8125rem">✓ done</span>' : '') +
+    '<br><span class="muted" style="font-size:.8125rem">' + esc(fmtRange(t)) + '</span></span>' +
+    '<button class="btn sm" data-act="exInfo" data-ex="' + esc(e.exercise) + '" aria-label="Cues and swaps for ' + esc(e.exercise) + '">Cues</button>' +
+    (e.done ? '<button class="btn sm" data-act="exDone" data-ex="' + esc(e.exercise) + '" aria-label="Reopen ' + esc(e.exercise) + '">Edit</button>'
+            : (open ? '<button class="btn sm" data-act="exDone" data-ex="' + esc(e.exercise) + '" aria-label="Mark ' + esc(e.exercise) + ' done">Done</button>'
+                    : '<button class="btn sm" data-act="exOpen" data-ex="' + esc(e.exercise) + '" aria-label="Open ' + esc(e.exercise) + '">Open</button>')) + '</div>';
+  if (e.done) {
+    h += '<p class="prev num">' + esc(summary) + '</p>' + viewProgressionLine(p, e, d, enr);
+    return h;
+  }
+  if (!open) { h += '<p class="prev num">' + (sets.length ? esc(summary) : t.sets + ' sets planned') + '</p>'; return h; }
+  const pf = prefillFor(p, e, enr, d);
+  h += '<p class="muted" style="font-size:.8125rem;margin:.2rem 0 0">' + esc((ex ? (ex.equipment.split(",")[0]) : "") + ' · weight is ' + loadLabel(ex)) + (t.perSide ? ' · reps are per side' : '') + (e.target.restAfter ? ' · rest after ' + esc(e.target.restAfter) : '') + '</p>';
+  if (afterHeavy) h += '<p class="dense" style="margin:.4rem 0 0">Rest about 3–4 min after the heavy leg work before this one. <button class="chipbtn" data-act="restStartN" data-s="180">Start 3:00 rest</button></p>';
+  else if (index > 0 && !sets.length) h += '<p class="dense" style="margin:.4rem 0 0">About 2 min between exercises, including setup. <button class="chipbtn" data-act="restStartN" data-s="120">Start 2:00 rest</button></p>';
+  if (pf.prevSets.length) h += '<p class="prev num">Last time ' + esc(fmtDate(pf.histDate)) + ': ' + pf.prevSets.map(x => R(x.lb) + '×' + x.reps + (x.rir != null ? ' (' + x.rir + ' left)' : '')).join(', ') + '</p>';
+  else h += '<p class="prev muted">First time logging this one here.</p>';
+  const wu = warmupText(p.id, e.dayKey, e.slot, pf.planned != null ? pf.planned : (pf.lb || null));
+  if (wu && t.warmup === "ladder") h += '<p class="muted" style="font-size:.8125rem;margin:.3rem 0 0">' + esc(wu) + '</p>';
+  if (pf.planned != null && !sets.length) h += '<p class="dense" style="margin:.4rem 0 0">Accepted last time: <b class="num">' + R(pf.planned) + ' lb</b>. Start at ' + t.min + ' reps and work back up.</p>';
+  const key = e.exercise;
+  const pendingN = Math.max(0, t.sets - sets.map(normSet).filter(x => !x.warmup).length) + ((UI.extraPending || {})[key] || 0);
+  sets.forEach((x, i) => { h += viewSetRow(p, e, normSet(x), i, false, pf); });
+  for (let k = 0; k < pendingN; k++) h += viewSetRow(p, e, null, "p" + k, true, pf, sets.map(normSet).filter(x => !x.warmup).length + k + 1);
+  h += '<div class="two" style="margin-top:.5rem"><button class="btn" data-act="setMore" data-ex="' + esc(key) + '">＋ Add a set</button>' +
+    '<button class="btn" data-act="setWarm" data-ex="' + esc(key) + '">＋ Warm-up set</button></div>';
+  return h;
+}
+function viewSetRow(p, e, x, idx, pending, pf, setNo) {
+  const t = e.target, key = e.exercise;
+  const ed = UI.setEdit && UI.setEdit.ex === key && String(UI.setEdit.idx) === String(idx) ? UI.setEdit : null;
+  const workingNo = pending ? setNo : (e.sets.slice(0, idx + 1).map(normSet).filter(y => !y.warmup).length);
+  const label = pending ? 'Set ' + setNo + ' · working · plan ' + t.min + '–' + t.max
+    : (x.warmup ? 'Warm-up' : (x.status === "skipped" ? 'Set ' + workingNo + ' · skipped' : 'Set ' + workingNo + ' · working'));
+  const lb = pending ? (ed ? ed.lb : pf.lb) : (ed ? ed.lb : x.lb);
+  const reps = pending ? (ed ? ed.reps : pf.reps) : (ed ? ed.reps : x.reps);
+  let h = '<div class="setrow"><div class="grow"><div class="muted" style="font-size:.8125rem">' + esc(label) + '</div>';
+  if (!pending && x.status === "skipped") h += '<div class="muted">—</div>';
+  else h += '<div class="bignum">' + (lb == null || lb === "" ? '<span class="muted">— lb</span>' : R1(lb) + ' lb') + ' × ' + (reps == null ? '—' : reps) + '</div>';
+  if (!pending && !ed) {
+    const bits = [];
+    if (x.rir != null) bits.push(x.rir + " in reserve");
+    if (x.discomfort) bits.push("discomfort noted");
+    if (x.note) bits.push(x.note);
+    if (bits.length) h += '<div class="muted" style="font-size:.8125rem">' + esc(bits.join(" · ")) + '</div>';
+  }
+  if (pending && !ed && pf.why) h += '<div class="muted" style="font-size:.75rem">' + esc(pf.why) + '</div>';
+  h += '</div><div class="row" style="gap:.4rem">' +
+    '<button class="btn sm" data-act="setEdit" data-ex="' + esc(key) + '" data-i="' + idx + '" aria-label="Edit ' + esc(label) + '">' + (ed ? 'Close' : 'Edit') + '</button>' +
+    (pending
+      ? '<button class="logbtn" data-act="setDone" data-ex="' + esc(key) + '" data-i="' + idx + '" aria-pressed="false" aria-label="Mark ' + esc(label) + ' done at ' + (lb == null ? 'no weight' : R1(lb) + ' lb') + ' for ' + (reps == null ? '—' : reps) + ' reps"><span aria-hidden="true">✓</span><span>Done</span></button>'
+      : '<button class="logbtn" data-act="setUndo" data-ex="' + esc(key) + '" data-i="' + idx + '" aria-pressed="true" aria-label="' + esc(label) + ' logged. Tap to remove it."><span aria-hidden="true">✓</span><span>' + (x.status === "skipped" ? 'Skip' : 'Done') + '</span></button>') +
+    '</div></div>';
+  if (ed) h += viewSetEditor(p, e, ed, pending);
+  return h;
+}
+function viewSetEditor(p, e, ed, pending) {
+  const ex = EXERCISES[e.exId];
+  let h = '<div class="card" style="margin:.4rem 0 .6rem;background:var(--surface-2)">';
+  h += '<div class="two"><div class="field"><label for="se_reps">Reps' + (e.target.perSide ? ' (per side)' : '') + '</label><input id="se_reps" type="number" inputmode="numeric" min="0" step="1" value="' + (ed.reps == null ? "" : ed.reps) + '" data-act="seField" data-f="reps"></div>' +
+    '<div class="field"><label for="se_lb">Weight lb · ' + esc(loadLabel(ex)) + '</label><input id="se_lb" type="number" inputmode="decimal" min="0" step="2.5" value="' + (ed.lb == null ? "" : ed.lb) + '" data-act="seField" data-f="lb"></div></div>';
+  h += '<div class="wrap" style="margin-top:.4rem">' +
+    '<button class="chipbtn" data-act="seStep" data-f="reps" data-d="-1" aria-label="Reps minus one">−1 rep</button>' +
+    '<button class="chipbtn" data-act="seStep" data-f="reps" data-d="1" aria-label="Reps plus one">+1 rep</button>' +
+    '<button class="chipbtn" data-act="seStep" data-f="lb" data-d="-5" aria-label="Weight minus five pounds">−5 lb</button>' +
+    '<button class="chipbtn" data-act="seStep" data-f="lb" data-d="5" aria-label="Weight plus five pounds">+5 lb</button>' +
+    '<button class="chipbtn" data-act="seStep" data-f="lb" data-d="2.5" aria-label="Weight plus two and a half pounds">+2.5</button></div>';
+  h += prefRow("Reps left in the tank (reps in reserve)", [0, 1, 2, 3].map(v => '<button class="chipbtn" data-act="seRir" data-v="' + v + '" aria-pressed="' + (ed.rir === v) + '">' + (v === 3 ? '3+' : v) + '</button>').join("") +
+    '<button class="chipbtn" data-act="seRir" data-v="" aria-pressed="' + (ed.rir == null) + '">not sure</button>');
+  h += '<div class="wrap" style="margin-top:.5rem">' +
+    '<button class="chipbtn" data-act="seToggle" data-f="warmup" aria-pressed="' + !!ed.warmup + '">Warm-up set</button>' +
+    '<button class="chipbtn" data-act="seToggle" data-f="discomfort" aria-pressed="' + !!ed.discomfort + '">Discomfort</button></div>';
+  if (ed.discomfort) h += '<p class="dense" style="margin:.4rem 0 0">Noted. Stop if it sharpens — swapping or skipping is your call.</p>';
+  h += '<div class="field" style="margin-top:.5rem"><label for="se_note">Note (machine, seat setting, anything)</label><input id="se_note" value="' + esc(ed.note || "") + '" data-act="seField" data-f="note" maxlength="200"></div>';
+  h += '<div class="two" style="margin-top:.6rem">' +
+    (pending ? '<button class="btn primary tall" data-act="setDone" data-ex="' + esc(e.exercise) + '" data-i="' + ed.idx + '">✓ Done</button><button class="btn" data-act="setSkip" data-ex="' + esc(e.exercise) + '">Skip this set</button>'
+             : '<button class="btn primary tall" data-act="setSave" data-ex="' + esc(e.exercise) + '" data-i="' + ed.idx + '">Save</button><button class="btn danger" data-act="setDel" data-ex="' + esc(e.exercise) + '" data-i="' + ed.idx + '">Remove set</button>') +
+    '</div></div>';
+  return h;
+}
+/* The suggestion line under a finished exercise. A choice, never silent. */
+function viewProgressionLine(p, e, date, enr) {
+  const pc = judgeEntry(p.id, { date, entry: e, sets: workingSets(e) });
+  if (!pc) return "";
+  const k = e.exId + "|" + e.dayKey + "|" + e.slot;
+  const planned = (enr.planned || {})[k], kept = (enr.keep || {})[k];
+  let h = '';
+  if (pc.suggest === "add") {
+    if (planned && planned.acceptedOn >= date) h += '<p class="dense" style="margin:.3rem 0 0">Next time: <b class="num">' + R(planned.lb) + ' lb</b>, starting at ' + (pc.min || e.target.min) + ' reps. <button class="chipbtn" data-act="progKeep" data-ex="' + esc(e.exercise) + '">Change to keep ' + R(pc.lastLoad) + '</button></p>';
+    else if (kept && kept >= date) h += '<p class="muted" style="font-size:.875rem;margin:.3rem 0 0">Keeping ' + R(pc.lastLoad) + ' lb next time. <button class="chipbtn" data-act="progAsk" data-ex="' + esc(e.exercise) + '">Change</button></p>';
+    else {
+      h += '<p style="font-size:.9375rem;margin:.4rem 0 .2rem">' + esc(pc.why) + ' Try more next time?</p>';
+      if (p.isMinor) h += '<p class="muted" style="font-size:.8125rem;margin:0 0 .3rem">Only if the reps were clean and your supervising adult agrees.</p>';
+      h += '<div class="wrap">' + (pc.nextLoad
+        ? '<button class="chipbtn" data-act="progAccept" data-ex="' + esc(e.exercise) + '" data-lb="' + pc.nextLoad + '">Use ' + R1(pc.nextLoad) + ' lb next time</button>'
+        : '<button class="chipbtn" data-act="incSheet" data-ex="' + esc(e.exercise) + '">Add weight next time</button>') +
+        '<button class="chipbtn" data-act="progKeep" data-ex="' + esc(e.exercise) + '">Keep ' + R(pc.lastLoad) + ' lb</button></div>' +
+        '<p class="muted" style="font-size:.75rem;margin:.3rem 0 0">No choice = keep ' + R(pc.lastLoad) + '.</p>';
+    }
+  } else if (pc.suggest === "askRir") {
+    h += '<p style="font-size:.9375rem;margin:.4rem 0 .2rem">' + esc(pc.why) + '</p>';
+    if (e.technique == null) h += '<div class="wrap"><span class="muted" style="font-size:.875rem;align-self:center">Were the reps clean?</span>' +
+      '<button class="chipbtn" data-act="exTech" data-ex="' + esc(e.exercise) + '" data-v="ok">Yes, clean</button>' +
+      '<button class="chipbtn" data-act="exTech" data-ex="' + esc(e.exercise) + '" data-v="breakdown">Form broke down</button></div>';
+    if (pc.missing.some(m => /reserve/.test(m))) h += '<p class="muted" style="font-size:.8125rem;margin:.3rem 0 0">Add reps in reserve to each set with Edit, then this updates.</p>';
+  } else if (pc.suggest === "review") {
+    h += '<p class="dense" style="margin:.4rem 0 0">' + esc(pc.why) + '</p>';
+  } else if (pc.suggest === "hold" && pc.reps) {
+    h += '<p class="muted" style="font-size:.875rem;margin:.3rem 0 0">' + esc(pc.why) + '</p>';
+  }
+  return h;
+}
+/* The dock: lifter switch + rest timers, visible only during a program session. */
+function viewDock(p) {
+  const s = sessionOn(p.id, UI.date);
+  if (UI.tab !== "train" || !activeEnrollment(p.id) || !s || !s.templateRef || s.finishedAt) return "";
+  const now = Date.now();
+  let h = '<div class="dock" role="region" aria-label="Lifter and rest timer"><div class="two">';
+  for (const pr of Object.values(S.profiles)) {
+    const rt = trainingOf(pr.id).rest, rem = rt ? restRemaining(rt, now) : null;
+    h += '<button class="btn tall' + (pr.id === p.id ? ' primary' : '') + '" data-act="lifterSwitch" data-id="' + pr.id + '" aria-pressed="' + (pr.id === p.id) + '" aria-label="Log for ' + esc(pr.name) + (rt ? ', rest ' + fmtSec(rem) + ' left' : '') + '">' +
+      esc(pr.name) + (rt ? ' <span class="num" data-dock-rest="' + pr.id + '">' + (rem > 0 ? fmtSec(rem) : (rt.pausedAt ? fmtSec(rem) : "0:00")) + '</span>' : '') + '</button>';
+  }
+  h += '</div>';
+  const rt = trainingOf(p.id).rest;
+  if (rt) {
+    const rem = restRemaining(rt, now);
+    h += '<div class="row" style="margin-top:.4rem"><span class="grow"><span class="eyebrow">Rest · ' + esc(p.name) + (rt.label ? ' · ' + esc(rt.label) : '') + '</span><br>' +
+      '<span class="timer num" id="dockTime" role="timer" aria-live="off">' + (rem > 0 ? fmtSec(rem) : 'Rest over') + '</span></span>' +
+      '<button class="btn sm" data-act="restPause">' + (rt.pausedAt ? 'Resume' : 'Pause') + '</button>' +
+      '<button class="btn sm" data-act="restAdd" aria-label="Add thirty seconds">+30 s</button>' +
+      '<button class="btn sm" data-act="restSkip">' + (rem > 0 ? 'Skip' : 'Clear') + '</button></div>';
+  }
+  h += '<div id="liveRest" class="sr" aria-live="polite"></div></div>';
+  return h;
+}
+/* ---- sheets ---- */
+function sheetExInfo(exercise) {
+  const p = profile(), s = sessionOn(p.id, UI.date);
+  const e = s && s.entries.find(x => x.exercise === exercise);
+  if (!e || !e.target) return;
+  const ex = EXERCISES[e.exId] || { name: e.exercise, muscles: "", equipment: "", setup: "", cues: [], subs: [] };
+  let h = sheetHead(ex.name, (ex.muscles ? ex.muscles + ' · ' : '') + ex.equipment);
+  h += '<p style="font-size:.9375rem;margin:.2rem 0 .4rem"><b>Set-up.</b> ' + esc(ex.setup) + '</p>';
+  if (ex.cues.length) h += '<div class="eyebrow">Cues</div>' + ex.cues.map(c => '<p class="dense" style="margin:.3rem 0 0">' + esc(c) + '</p>').join("");
+  h += '<div class="rule"></div><div class="eyebrow">Plan</div><p class="num" style="margin:.3rem 0 0;font-size:.9375rem">' + esc(fmtRange(e.target)) + '</p>' +
+    '<p class="muted" style="font-size:.8125rem;margin:.2rem 0 0">Weight is ' + esc(loadLabel(ex)) + '. ' + (p.isMinor ? 'No max-effort testing: the plan is reps in reserve on every set.' : 'Controlled lowering, smooth lifting, no long pauses between ordinary reps.') + '</p>';
+  if (e.exId === "bb_bench") h += '<p class="dense" style="margin:.4rem 0 0">A spotter, or safety bars set correctly, on every set.</p>';
+  if (e.exId === "trap_dl") h += '<p class="dense" style="margin:.4rem 0 0">Reset your position and brace between reps.</p>';
+  const hist = historyFor(p.id, e.exId, e.dayKey, e.slot, UI.date).slice(0, 3);
+  const other = historyAny(p.id, e.exId, UI.date).filter(x => x.dayKey !== e.dayKey).slice(0, 2);
+  h += '<div class="rule"></div><div class="eyebrow">History · this slot</div>';
+  h += hist.length ? '<table class="mono-table" style="margin-top:.3rem"><tbody>' + hist.map(x => '<tr><td>' + esc(fmtDate(x.date)) + '</td><td>' + x.sets.map(y => R(y.lb) + '×' + y.reps).join(', ') + '</td></tr>').join("") + '</tbody></table>'
+                   : '<p class="muted" style="font-size:.875rem;margin:.3rem 0 0">Nothing finished yet.</p>';
+  if (other.length) h += '<p class="muted" style="font-size:.8125rem;margin:.4rem 0 0">For reference, the same exercise on other days: ' + other.map(x => esc(dayTitle(activeEnrollment(p.id), x.dayKey)) + ' ' + x.sets.map(y => R(y.lb) + '×' + y.reps).join(', ')).join(' · ') + '. Separate progression.</p>';
+  if (ex.subs && ex.subs.length) h += '<div style="height:.7rem"></div><button class="btn full" data-act="swapSheet" data-ex="' + esc(exercise) + '">Swap this exercise</button>';
+  openSheet(h);
+}
+function sheetSwap(exercise) {
+  const p = profile(), s = sessionOn(p.id, UI.date);
+  const e = s && s.entries.find(x => x.exercise === exercise);
+  if (!e || !e.target) return;
+  const enr = activeEnrollment(p.id);
+  const base = tmplDay(enr, e.dayKey).slots[e.slot].exId;
+  const opts = [base].concat(EXERCISES[base].subs || []);
+  UI.swapEx = exercise;
+  UI.swap = UI.swap || { pick: e.exId, remember: false };
+  let h = sheetHead("Swap " + exName(base), "Pick one. Nothing changes until you tap Swap. Each exercise keeps its own history and progression.");
+  for (const id of opts) {
+    const x = EXERCISES[id];
+    h += '<button class="item" data-act="swapPick" data-id="' + id + '" aria-pressed="' + (UI.swap.pick === id) + '"><span class="grow"><span class="nm">' + esc(x.name) + (id === base ? ' <span class="muted">· the program&rsquo;s choice</span>' : '') + '</span><br>' +
+      '<span class="sub">' + esc(x.equipment) + ' · ' + esc(loadLabel(x)) + (SUB_RANGES[id] ? ' · ' + SUB_RANGES[id].min + '–' + SUB_RANGES[id].max + ' reps' : '') + '</span></span>' + (UI.swap.pick === id ? '<span aria-hidden="true">✓</span>' : '') + '</button>';
+  }
+  h += '<div class="wrap" style="margin-top:.5rem"><button class="chipbtn" data-act="swapScope" data-v="0" aria-pressed="' + !UI.swap.remember + '">Just today</button>' +
+    '<button class="chipbtn" data-act="swapScope" data-v="1" aria-pressed="' + !!UI.swap.remember + '">Every ' + esc(dayTitle(enr, e.dayKey)) + ' day</button></div>';
+  h += '<div style="height:.7rem"></div><button class="btn primary full tall" data-act="swapDo" data-ex="' + esc(exercise) + '">Swap</button>';
+  openSheet(h);
+}
+function sheetFinish() {
+  const p = profile(), s = sessionOn(p.id, UI.date);
+  if (!s) return;
+  const tpl = s.entries.filter(e => e.target);
+  const done = tpl.filter(e => e.done).length;
+  const sets = s.entries.reduce((a, e) => a + (e.sets || []).map(normSet).filter(x => x.status === "completed" && !x.warmup).length, 0);
+  const skipped = s.entries.reduce((a, e) => a + (e.sets || []).map(normSet).filter(x => x.status === "skipped").length, 0);
+  let h = sheetHead("Finish " + s.name + "?", done + " of " + tpl.length + " exercises marked done · " + sets + " working set" + (sets === 1 ? "" : "s") + (skipped ? " · " + skipped + " skipped" : ""));
+  h += '<p style="font-size:.9375rem;margin:.2rem 0 .6rem">Sets you did not mark stay unmarked. Nothing is filled in for you, and you can reopen the session any time.</p>';
+  h += '<button class="btn primary full tall" data-act="sessionFinish">Finish workout</button><div style="height:.5rem"></div><button class="btn full" data-act="closeSheet">Keep going</button>';
+  openSheet(h);
+}
+function sheetShift(ordinal) {
+  const p = profile(), enr = activeEnrollment(p.id);
+  if (!enr) return;
+  const row = enr.schedule.find(r => r.ordinal === ordinal);
+  const today = isoDate(), delta = daysBetween(row.date, today);
+  let h = sheetHead("Move the remaining days?", dayTitle(enr, row.dayKey) + " was planned for " + fmtDate(row.date) + ". Today is " + fmtDate(today) + ".");
+  h += '<p style="font-size:.9375rem;margin:.2rem 0 .5rem">Every unfinished day moves by ' + delta + ' day' + (delta === 1 ? '' : 's') + ', so the spacing stays. Nothing lands on top of anything else.</p>';
+  h += '<table class="mono-table"><thead><tr><th scope="col">Day</th><th scope="col">Now</th><th scope="col">Moved</th></tr></thead><tbody>';
+  for (const r of enr.schedule.filter(r => r.ordinal >= ordinal && !rowResolved(p.id, r)).slice(0, 7))
+    h += '<tr><td>' + esc(dayTitle(enr, r.dayKey)) + '</td><td>' + esc(fmtDate(r.date)) + '</td><td>' + esc(fmtDate(shiftDate(r.date, delta))) + '</td></tr>';
+  h += '</tbody></table><p class="muted" style="font-size:.75rem;margin:.3rem 0 .6rem">First seven shown; all later days move the same way.</p>';
+  h += '<button class="btn primary full tall" data-act="shiftDo" data-o="' + ordinal + '">Move the remaining days</button><div style="height:.5rem"></div>' +
+    '<button class="btn full" data-act="shiftKeep" data-o="' + ordinal + '">Keep the dates as they are</button>';
+  openSheet(h);
+}
+function sheetCycle(ordinal) {
+  const p = profile(), enr = activeEnrollment(p.id);
+  if (!enr) return;
+  const r = scheduleFor(p.id, isoDate()).find(x => x.ordinal === ordinal);
+  if (!r) return;
+  let h = sheetHead(r.name + " · " + fmtDate(r.date), "Week " + r.weekIndex + " · " + r.status.replace("unrecorded", "completed, details not recorded"));
+  if (r.session && r.session.entries.some(e => e.sets.length)) {
+    h += '<div style="margin-top:.3rem">' + r.session.entries.filter(e => e.sets.length).map(e => '<div class="item"><span class="grow"><span class="nm">' + esc(e.exercise) + '</span><br><span class="sub num">' + esc(entrySummary(e)) + '</span></span></div>').join("") + '</div>';
+  }
+  h += '<div class="stack" style="margin-top:.6rem">';
+  h += '<button class="btn full tall" data-act="cycleOpen" data-d="' + r.date + '">' + (r.status === "done" ? 'Open it' : (r.session ? 'Open to log' : 'Open and log it')) + '</button>';
+  if (r.status !== "done" && !(r.session && r.session.entries.some(e => e.sets.length))) h += '<button class="btn full" data-act="cycleUnrecorded" data-o="' + ordinal + '">' + (r.status === "unrecorded" ? '✓ Completed, details not recorded' : 'It happened — completed, details not recorded') + '</button>';
+  h += '<div class="field"><label for="cyDate">Planned date</label><input id="cyDate" type="date" value="' + r.date + '" data-act="cycleDate" data-o="' + ordinal + '"' + (r.status === "done" || r.status === "unrecorded" ? ' disabled aria-disabled="true"' : '') + '></div>';
+  h += '</div>';
+  openSheet(h);
+}
+function sheetIncrement(exercise) {
+  const p = profile(), s = sessionOn(p.id, UI.date);
+  const e = s && s.entries.find(x => x.exercise === exercise);
+  if (!e) return;
+  const ex = EXERCISES[e.exId];
+  let h = sheetHead("Smallest step for " + e.exercise, "What is the smallest weight you can add on this one? Plates, the next dumbbell, the next pin. It is remembered for this exercise on this profile.");
+  h += '<div class="field"><label for="incLb">Smallest step, lb (' + esc(loadLabel(ex)) + ')</label><input id="incLb" type="number" inputmode="decimal" min="0.5" step="0.5" placeholder="e.g. 5"></div>';
+  h += '<div class="wrap" style="margin-top:.4rem">' + [2.5, 5, 10].map(v => '<button class="chipbtn" data-act="incPick" data-v="' + v + '">' + v + ' lb</button>').join("") + '</div>';
+  h += '<div style="height:.7rem"></div><button class="btn primary full tall" data-act="incSave" data-ex="' + esc(exercise) + '">Save and use it next time</button>';
+  openSheet(h);
+}
+function sheetReview() {
+  const p = profile(), rv = weekReview(p.id, isoDate());
+  const enr = activeEnrollment(p.id);
+  if (!rv || !enr) return;
+  const t = programOf(enr.templateKey);
+  let h = sheetHead(t.weeks + " weeks of " + t.name, rv.planned + " sessions planned · " + rv.done + " logged" + (rv.unrecorded ? " · " + rv.unrecorded + " completed without details" : ""));
+  if (!rv.ready) h += '<p class="dense" style="margin:.2rem 0 .5rem">The last planned day is ' + esc(fmtDate(rv.lastDate)) + '. The review is here whenever you want it; the choice to continue waits for the end.</p>';
+  if (rv.perSlot.length) {
+    h += '<table class="mono-table"><thead><tr><th scope="col">Exercise</th><th scope="col">First</th><th scope="col">Latest</th></tr></thead><tbody>';
+    for (const r of rv.perSlot) h += '<tr><td>' + esc(r.day) + ' · ' + esc(r.name) + '</td><td>' + R(r.first.lb) + '×' + r.first.reps + '</td><td>' + R(r.last.lb) + '×' + r.last.reps + '</td></tr>';
+    h += '</tbody></table>';
+  } else h += '<p class="muted" style="font-size:.9375rem;margin:.3rem 0">No finished sessions with sets yet.</p>';
+  h += '<p class="muted" style="font-size:.8125rem;margin:.4rem 0 .6rem">Recovery check-ins saved: ' + rv.checkins + '. Counts, not grades.</p>';
+  if (p.isMinor) h += '<p class="dense" style="margin:0 0 .6rem">A solid block of technique work. Plan the next block with your coach or supervising adult.</p>';
+  h += '<div class="field"><label for="rvStart">Next cycle starts</label><input id="rvStart" type="date" value="' + (rv.lastDate && rv.lastDate > isoDate() ? shiftDate(rv.lastDate, 2) : isoDate()) + '"></div>';
+  h += '<div style="height:.5rem"></div><button class="btn primary full tall" data-act="cycleContinue">Continue another ' + t.weeks + ' weeks</button>' +
+    '<p class="muted" style="font-size:.8125rem;margin:.3rem 0 .5rem">Same template. Accepted weights, steps and swaps carry over.</p>' +
+    '<button class="btn full" data-act="closeSheet">Not now</button>' +
+    '<div style="height:.5rem"></div><button class="btn full danger" data-act="progEnd">End this program</button>';
+  openSheet(h);
+}
+function sheetProgram() {
+  const p = profile(), enr = activeEnrollment(p.id);
+  const t = PROGRAM_TEMPLATES[0];
+  if (!enr) {
+    let h = sheetHead(t.name, t.weeks + " weeks, renewable · " + t.cycle.map(k => t.days[k].name).join(" / "));
+    for (const k of t.cycle.filter((x, i, a) => a.indexOf(x) === i)) {
+      const d = t.days[k];
+      h += '<div class="exblock"><b>' + esc(d.name) + '</b>' + (d.sub ? ' <span class="muted" style="font-size:.8125rem">· ' + esc(d.sub) + '</span>' : '');
+      if (d.kind === "lift") h += '<br><span class="muted" style="font-size:.8125rem">' + d.slots.map(sl => esc(exName(sl.exId)) + ' ' + sl.sets + '×' + sl.min + '–' + sl.max).join(' · ') + '</span>';
+      else h += '<br><span class="muted" style="font-size:.8125rem">' + esc(d.note) + '</span>';
+      h += '</div>';
+    }
+    h += '<div class="rule"></div><div class="field"><label for="enStart">First day (the first ' + esc(t.days[t.cycle[0]].name) + ')</label><input id="enStart" type="date" value="' + isoDate() + '"></div>';
+    if (p.isMinor) h += '<label class="tap" style="gap:.5rem;margin-top:.5rem"><input type="checkbox" id="enSup"><span style="font-size:.9375rem">A supervising adult is present for every lift, and the loads are mine alone.</span></label>';
+    h += '<p class="muted" style="font-size:.8125rem;margin:.5rem 0">Dates can be changed any time. Nothing about your meals or targets changes.</p>';
+    h += '<button class="btn primary full tall" data-act="enrollDo">Start this program</button>';
+    openSheet(h);
+    return;
+  }
+  const tp = programOf(enr.templateKey);
+  let h = sheetHead(tp.name, "Started " + fmtDate(enr.startDate) + " · week " + weekOfOrdinal((nextWorkout(p.id, isoDate()) || { ordinal: 55 }).ordinal) + " of " + tp.weeks);
+  h += '<p class="muted" style="font-size:.8125rem;margin:.2rem 0 .4rem">Change a planned date here. Finished days keep theirs.</p>';
+  const rows = scheduleFor(p.id, isoDate());
+  const from = Math.max(0, rows.findIndex(r => r.status !== "done" && r.status !== "unrecorded" && r.kind === "lift") - 2);
+  h += '<table class="mono-table"><tbody>';
+  for (const r of rows.slice(from, from + 14)) {
+    const locked = r.status === "done" || r.status === "unrecorded";
+    h += '<tr><td>' + esc(r.name) + ' <span class="muted">wk ' + r.weekIndex + '</span></td><td>' + (locked ? esc(fmtDate(r.date)) + ' ✓' :
+      '<input type="date" value="' + r.date + '" data-act="rowDate" data-o="' + r.ordinal + '" aria-label="Date for ' + esc(r.name) + ' week ' + r.weekIndex + '" style="width:10.5rem">') + '</td></tr>';
+  }
+  h += '</tbody></table><p class="muted" style="font-size:.75rem;margin:.3rem 0 .6rem">Fourteen days around the next workout shown.</p>';
+  h += '<button class="btn full" data-act="reviewSheet">Review and renew</button><div style="height:.5rem"></div><button class="btn full danger" data-act="progEnd">End this program</button>' +
+    '<p class="muted" style="font-size:.8125rem;margin:.3rem 0 0">Ending keeps every logged session. The old weekday program comes back.</p>';
+  openSheet(h);
+}
+
+/* ---------- Day (LL-648) ---------- */
+function viewToday(p) {
+  if (p.isMinor) return viewMeals(p);
+  const view = UI.todayView || p.todayOpens || "day";
+  let h = '<div class="tabs" role="tablist" aria-label="Today views">' +
+    '<button role="tab" data-act="todayView" data-v="day" aria-selected="' + (view === "day") + '">Day</button>' +
+    '<button role="tab" data-act="todayView" data-v="meals" aria-selected="' + (view === "meals") + '">Meals</button></div>';
+  return h + (view === "day" ? viewDay(p) : viewMeals(p));
+}
+function viewDay(p) {
+  const d = UI.date, sc = scheduleOf(p.id);
+  const rows = scheduleRows(p.id, d);
+  const prog = dayProgress(p.id, d);
+  const cur = currentRow(p.id, d);
+  const rec = dayRec(p.id, d, false);
+  const blocks = blocksOn(p.id, d);
+  const L = sc.template.labels;
+  let h = '<div class="row" style="margin:.1rem 0 .5rem"><span class="grow" style="font-size:1.125rem;font-weight:700">' + esc(fmtDate(d)) + '</span><span class="num muted">' + prog.done + ' of ' + prog.total + ' done</span></div>';
+  const fixed = [];
+  if (blocks.length) fixed.push(esc(L.block || "Work block") + 's ' + blocks.map(b => t12(b[0]) + '–' + t12(b[1])).join(' · '));
+  for (const r of rows) if (r.kind === "event" && r.sub) fixed.push(esc(r.label) + ' ' + esc(r.sub.split(" · ")[0]));
+  if (fixed.length) h += '<p class="muted num" style="font-size:.875rem;margin:0 0 .6rem">' + fixed.join('<br>') + '</p>';
+  /* top 3 */
+  const top3 = (rec && rec.top3) || [{ text: "", done: false }, { text: "", done: false }, { text: "", done: false }];
+  const yd = dayRec(p.id, shiftDate(d, -1), false);
+  h += '<div class="card"><div class="eyebrow">Top 3 today</div>';
+  if (yd && yd.reflection && yd.reflection.tomorrow) h += '<p class="muted" style="font-size:.875rem;margin:.3rem 0 0">You wrote yesterday: &ldquo;' + esc(yd.reflection.tomorrow) + '&rdquo;</p>';
+  top3.forEach((t, i) => {
+    const pr = sc.template.top3Prompts[i] || "";
+    h += '<div class="row" style="margin-top:.45rem;gap:.5rem"><label class="tap" style="justify-content:center;flex:0 0 auto"><input type="checkbox" data-act="top3Tick" data-i="' + i + '"' + (t.done ? ' checked' : '') + ' aria-label="Top 3 ' + esc(pr) + ', done"></label>' +
+      '<label class="sr" for="top3_' + i + '">' + esc(pr) + '</label><span class="muted" style="flex:0 0 5rem;font-size:.875rem">' + esc(pr) + '</span>' +
+      '<input id="top3_' + i + '" value="' + esc(t.text) + '" placeholder="one line" maxlength="120" data-act="top3Text" data-i="' + i + '"' + (t.done ? ' style="text-decoration:line-through"' : '') + '></div>';
+  });
+  h += '</div>';
+  /* rows */
+  h += '<div class="eyebrow" style="margin:.2rem 0 .4rem">Do, in order</div>';
+  for (const r of rows) {
+    const isNow = r.id === cur;
+    const cls = 'slot grow' + (r.done ? ' done' : '') + (isNow ? ' now' : '');
+    if (r.kind === "meal") {
+      const entries = logsFor(p.id, d).filter(e => e.slotId === r.slotId);
+      h += '<div class="slotrow"><div class="slotwrap"><button class="' + cls + '" data-act="slotOpen" data-slot="' + r.slotId + '" aria-label="' + esc(r.label) + (r.done ? ', logged' : ', not logged') + '. Adjust or review.">' +
+        '<span class="tick" aria-hidden="true">' + (r.done ? '✓' : '') + '</span><span class="st' + (isNow ? ' next' : '') + '">' + (isNow ? 'NEXT' : '') + '</span>' +
+        '<span class="sn grow">' + esc(r.label) + (r.sub ? '<br><span class="muted" style="font-size:.8125rem">' + esc(r.sub) + '</span>' : '') + '</span></button>' +
+        (r.done ? '' : '<button class="logbtn" data-act="logSlot" data-slot="' + r.slotId + '" aria-label="Log ' + esc(r.label) + ' at planned macros"><span aria-hidden="true">＋</span><span>Log</span></button>') + '</div></div>';
+      continue;
+    }
+    const tickable = r.kind !== "reflection";
+    const act = r.kind === "reflection" ? 'reflSheet' : 'dayTick';
+    h += '<div class="slotrow"><div class="slotwrap"><button class="' + cls + '" data-act="' + act + '" data-row="' + esc(r.id) + '" aria-pressed="' + (tickable ? r.done : undefined) + '" aria-label="' + esc(r.label) + (r.optional ? ', optional' : '') + (r.done ? ', done' : ', not done') + (tickable ? '. Tap to ' + (r.done ? 'untick' : 'tick') + '.' : '. Opens the reflection.') + '">' +
+      '<span class="tick" aria-hidden="true">' + (r.done ? '✓' : (r.optional ? '·' : '')) + '</span><span class="st' + (isNow ? ' next' : '') + '">' + (isNow ? 'NEXT' : '') + '</span>' +
+      '<span class="sn grow">' + esc(r.label) + (r.sub ? '<br><span class="muted num" style="font-size:.8125rem">' + esc(r.sub) + '</span>' : '') + '</span></button>' +
+      (r.kind === "workout" && !r.optional && !r.done ? '<button class="logbtn" data-act="dayOpenTrain" aria-label="Open the workout"><span aria-hidden="true">▲</span><span>Open</span></button>' : '') +
+      '</div></div>';
+  }
+  h += '<p class="muted" style="font-size:.875rem;margin:.6rem 0">A missed box gets the next slot. It&rsquo;s data, not a verdict on you.</p>';
+  h += '<div class="two"><button class="btn" data-act="tallySheet">This week</button><button class="btn" data-act="dayEditSheet" data-w="' + parseISO(d).getDay() + '">Edit this day&rsquo;s list</button></div>';
+  return h;
+}
+function sheetReflection(date) {
+  const p = profile(), rec = dayRec(p.id, date, false);
+  const r = (rec && rec.reflection) || { done: "", blocked: "", tomorrow: "", money: { blocks: [], side: {}, event: null } };
+  const sc = scheduleOf(p.id), L = sc.template.labels, blocks = blocksOn(p.id, date);
+  const hasEvent = scheduleRows(p.id, date).some(x => x.kind === "event");
+  let h = sheetHead("Night reflection · " + fmtDate(date), "Three lines. Every field is optional.");
+  for (const [k, lab] of [["done", "Done"], ["blocked", "Blocked"], ["tomorrow", "Tomorrow"]])
+    h += '<div class="field"><label for="rf_' + k + '">' + lab + '</label><textarea id="rf_' + k + '" rows="2" maxlength="300" style="min-height:48px">' + esc(r[k] || "") + '</textarea></div>';
+  if (blocks.length) {
+    h += '<div class="field" style="margin-top:.6rem"><span class="muted" style="font-size:.8125rem">' + esc(L.block || "Work block") + ' $</span><div class="three" style="margin-top:.25rem">' +
+      blocks.map((b, i) => '<input class="num" type="number" inputmode="decimal" min="0" step="1" id="rf_b' + i + '" value="' + (r.money && r.money.blocks && r.money.blocks[i] != null ? r.money.blocks[i] : "") + '" aria-label="' + esc(L.block || "Work block") + ' ' + (i + 1) + ' dollars" placeholder="' + (i + 1) + '">').join("") + '</div></div>';
+    h += '<div class="two" style="margin-top:.5rem"><div class="field"><label for="rf_sh">' + esc(L.side || "Side work") + ' hours</label><input class="num" id="rf_sh" type="number" inputmode="decimal" min="0" step="0.5" value="' + (r.money && r.money.side && r.money.side.hrs != null ? r.money.side.hrs : "") + '"></div>' +
+      '<div class="field"><label for="rf_su">' + esc(L.side || "Side work") + ' $</label><input class="num" id="rf_su" type="number" inputmode="decimal" min="0" step="1" value="' + (r.money && r.money.side && r.money.side.usd != null ? r.money.side.usd : "") + '"></div></div>';
+  }
+  if (hasEvent) h += '<div class="field" style="margin-top:.5rem"><label for="rf_ev">' + esc(L.event || "Event") + ' $</label><input class="num" id="rf_ev" type="number" inputmode="decimal" min="0" step="1" value="' + (r.money && r.money.event != null ? r.money.event : "") + '"></div>';
+  if (!p.isMinor) {
+    const w = (metricsOf(p.id).weight || []).find(x => x.date === date);
+    h += '<div class="field" style="margin-top:.5rem"><label for="rf_wt">Weight today, lb (saved to Progress)</label><input class="num" id="rf_wt" type="number" inputmode="decimal" min="0" step="0.1" value="' + (w ? w.lb : "") + '"></div>';
+  }
+  h += '<div style="height:.7rem"></div><button class="btn primary full tall" data-act="reflSave" data-d="' + date + '">Save</button>';
+  openSheet(h);
+}
+function sheetTally() {
+  const p = profile();
+  const wid = weekIdOf(UI.date);
+  const t = weekTally(p.id, wid);
+  let h = sheetHead("This week", weekLabel(wid));
+  h += '<table class="mono-table" style="margin-top:.3rem"><thead><tr><th scope="col">Box</th>' + t.dates.map(d => '<th scope="col">' + DAYS[parseISO(d).getDay()][0] + '</th>').join("") + '</tr></thead><tbody>';
+  for (const b of t.boxes) h += '<tr><td>' + esc(b.label) + '</td>' + b.cells.map(c => '<td>' + (c === null ? '<span class="muted" aria-label="nothing planned">·</span>' : (c ? '<span aria-label="done">✓</span>' : '<span class="muted" aria-label="not done">–</span>')) + '</td>').join("") + '</tr>';
+  h += '</tbody></table><p class="muted" style="font-size:.8125rem;margin:.4rem 0 0">✓ done · – not done · · nothing planned. Counts, nothing else.</p>';
+  openSheet(h);
+}
+function sheetDayEdit(wd) {
+  const p = profile(), sc = scheduleOf(p.id);
+  wd = String(wd == null ? parseISO(UI.date).getDay() : wd);
+  UI.editWd = wd;
+  const rows = schedRows(p.id, wd).slice().sort((a, b) => a.at - b.at);
+  const blocks = sc.template.blocks[wd];
+  const L = sc.template.labels;
+  let h = sheetHead("Edit the day list", "Changes apply to every " + DAYS[+wd] + ". Ticks and reflections already saved are kept.");
+  h += '<div class="field"><label for="edWd">Day</label><select id="edWd" data-act="dayEditWd">' + DAYS.map((n, i) => '<option value="' + i + '"' + (String(i) === wd ? ' selected' : '') + '>' + n + '</option>').join("") + '</select></div>';
+  h += '<div class="rule"></div><div class="eyebrow">' + esc(L.block || "Work block") + 's</div>';
+  blocks.forEach((b, i) => {
+    h += '<div class="row" style="margin-top:.4rem;gap:.4rem"><span class="muted" style="flex:0 0 2rem">' + (i + 1) + '</span>' +
+      '<input type="time" value="' + esc(String(Math.floor(b[0] / 60)).padStart(2, "0") + ":" + String(b[0] % 60).padStart(2, "0")) + '" data-act="blockTime" data-i="' + i + '" data-e="0" aria-label="Block ' + (i + 1) + ' starts" style="flex:1;min-width:0;width:auto">' +
+      '<input type="time" value="' + esc(String(Math.floor(b[1] / 60)).padStart(2, "0") + ":" + String(b[1] % 60).padStart(2, "0")) + '" data-act="blockTime" data-i="' + i + '" data-e="1" aria-label="Block ' + (i + 1) + ' ends" style="flex:1;min-width:0;width:auto">' +
+      '<button class="chipbtn" data-act="blockDel" data-i="' + i + '" aria-label="Remove block ' + (i + 1) + '">✕</button></div>';
+  });
+  if (blocks.length < 6) h += '<button class="btn sm" data-act="blockAdd" style="margin-top:.4rem">＋ Add a block</button>';
+  h += '<div class="rule"></div><div class="eyebrow">Rows, in order</div>';
+  for (const r of rows) {
+    const name = r.kind === "block" ? (L.block || "Work block") + " " + ((r.blockIndex || 0) + 1) : (r.label || r.kind);
+    h += '<div class="row" style="margin-top:.4rem;gap:.3rem">' +
+      (r.kind === "reflection" ? '<span class="chipbtn muted" style="visibility:hidden" aria-hidden="true">▲</span><span class="chipbtn" style="visibility:hidden" aria-hidden="true">▼</span>'
+        : '<button class="chipbtn" data-act="rowMove" data-id="' + esc(r.id) + '" data-d="-1" aria-label="Move ' + esc(name) + ' up">▲</button><button class="chipbtn" data-act="rowMove" data-id="' + esc(r.id) + '" data-d="1" aria-label="Move ' + esc(name) + ' down">▼</button>') +
+      '<span class="grow" style="font-size:.9375rem">' + esc(name) + '<br><span class="muted" style="font-size:.75rem">' + esc(r.kind) + (r.minutes ? ' · ' + r.minutes + ' min' : '') + (r.note ? ' · ' + r.note : '') + '</span></span>' +
+      (r.kind === "block" ? '' : '<button class="chipbtn" data-act="rowSheet" data-id="' + esc(r.id) + '" aria-label="Details for ' + esc(name) + '">…</button>') +
+      (r.kind === "reflection" ? '' : '<button class="chipbtn" data-act="rowDel" data-id="' + esc(r.id) + '" aria-label="Remove ' + esc(name) + '">✕</button>') + '</div>';
+  }
+  h += '<div class="rule"></div><div class="field"><label for="newRow">New row</label><input id="newRow" placeholder="Name it" maxlength="120"></div>' +
+    '<div class="wrap" style="margin-top:.4rem">' + [["task", "Task"], ["workout", "Workout"], ["event", "Fixed event"]].map(([v, l]) => '<button class="chipbtn" data-act="rowAdd" data-k="' + v + '">＋ ' + l + '</button>').join("") + '</div>';
+  h += '<div class="rule"></div><div class="two"><button class="btn" data-act="copySheet">Copy this day to…</button><button class="btn" data-act="schedRestore">Restore previous list</button></div>' +
+    '<div class="two" style="margin-top:.5rem"><button class="btn" data-act="schedExport">Export my list</button><button class="btn" data-act="importSheet">Import a list</button></div>';
+  openSheet(h);
+}
+function sheetDayRow(wd, rowId) {
+  const p = profile();
+  const r = (schedRows(p.id, wd) || []).find(x => x.id === rowId);
+  if (!r) return;
+  const tm = m => m == null ? "" : String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+  let h = sheetHead(r.label || r.kind, r.kind + " · every " + DAYS[+wd]);
+  h += '<div class="field"><label for="rwLabel">Name</label><input id="rwLabel" value="' + esc(r.label) + '" maxlength="120" data-act="rowField" data-f="label" data-id="' + esc(r.id) + '"></div>';
+  if (r.kind !== "reflection") h += '<div class="field"><label for="rwMin">Minutes (optional)</label><input id="rwMin" type="number" min="0" max="600" value="' + (r.minutes || "") + '" data-act="rowField" data-f="minutes" data-id="' + esc(r.id) + '"></div>';
+  h += '<div class="field"><label for="rwNote">Note under the row (optional)</label><input id="rwNote" value="' + esc(r.note || "") + '" maxlength="120" data-act="rowField" data-f="note" data-id="' + esc(r.id) + '"></div>';
+  if (r.kind === "workout") h += '<div class="field"><label for="rwWith">Training partner (optional)</label><input id="rwWith" value="' + esc(r.with || "") + '" maxlength="40" data-act="rowField" data-f="with" data-id="' + esc(r.id) + '"></div>';
+  if (r.kind === "event") h += '<div class="two"><div class="field"><label for="rwAt">Starts</label><input id="rwAt" type="time" value="' + tm(r.at) + '" data-act="rowField" data-f="at" data-id="' + esc(r.id) + '"></div><div class="field"><label for="rwUntil">Ends</label><input id="rwUntil" type="time" value="' + tm(r.until) + '" data-act="rowField" data-f="until" data-id="' + esc(r.id) + '"></div></div>';
+  h += '<div class="field"><label for="rwTally">Week-tally box (rows sharing a name share a box)</label><input id="rwTally" value="' + esc(r.tally || "") + '" maxlength="40" data-act="rowField" data-f="tally" data-id="' + esc(r.id) + '"></div>';
+  h += '<div style="height:.7rem"></div><button class="btn full" data-act="dayEditSheet" data-w="' + wd + '">‹ Back to the list</button>';
+  openSheet(h);
+}
+function sheetCopyDay(wd) {
+  UI.copyTo = UI.copyTo || {};
+  let h = sheetHead("Copy " + DAYS[+wd] + " to…", "Their lists and blocks are replaced. Restore previous list undoes it.");
+  h += '<div class="wrap" style="margin-top:.3rem">' + DAYS.map((n, i) => String(i) === String(wd) ? '' : '<button class="chipbtn" data-act="copyPick" data-w="' + i + '" aria-pressed="' + !!UI.copyTo[i] + '">' + n + '</button>').join("") + '</div>';
+  h += '<div style="height:.7rem"></div><button class="btn primary full tall" data-act="copyDo" data-w="' + wd + '">Copy</button>';
   openSheet(h);
 }
 
@@ -4323,13 +4990,17 @@ function openSession(pid, dateStr) {
   let s = sessionOn(pid, dateStr);
   if (s) { reorderSession(pid, s); return s; }
   const sched = scheduledFor(pid, dateStr);
-  s = { date: dateStr, name: sched.length ? sched.map(x => x.name).join(" + ") : "Session", entries: [] };
+  /* LL-647: a program day seeds its template work first (sessionForDay owns
+     the session on that date); the weekday blocks below are appended after. */
+  s = sessionForDay(pid, dateStr);
+  const fresh = !s;
+  if (!s) s = { date: dateStr, name: sched.length ? sched.map(x => x.name).join(" + ") : "Session", entries: [] };
   /* A P90X block is a duration, not sets and reps. Seed it as an entry with
      a minutes field so the ramp-up has somewhere to live (LL-404). */
   for (const item of sched)
     for (const b of (item.blocks || []))
-      if (b.kind === "block") s.entries.push({ exercise: item.name, sets: [], minutes: null, block: true });
-  trainingOf(pid).sessions.push(s);
+      if (b.kind === "block" && !s.entries.some(x => x.block && x.exercise === item.name)) s.entries.push({ exercise: item.name, sets: [], minutes: null, block: true, after: !fresh });
+  if (fresh) trainingOf(pid).sessions.push(s);
   trainingOf(pid).sessions.sort((a, b) => (a.date < b.date ? -1 : 1));
   reorderSession(pid, s);
   save();
@@ -4421,7 +5092,9 @@ function entrySummary(e) {
   if (e.block || e.minutes !== undefined)
     return e.minutes == null ? "no minutes logged" : R(e.minutes) + " min";
   if (!e.sets.length) return "no sets logged";
-  return e.sets.map(x => R(x.lb) + " lb × " + x.reps).join(", ");
+  const done = e.sets.map(normSet).filter(x => x.status === "completed");
+  if (!done.length) return "no sets logged";
+  return done.map(x => (x.warmup ? "w " : "") + R(x.lb) + " lb × " + x.reps).join(", ");
 }
 /* Swap the opener for a different explosive item — a choice, not a reorder. */
 function swapExplosive(pid, dateStr, name) {
@@ -4471,6 +5144,990 @@ function knownExercises(pid) {
   for (const s of trainingOf(pid).sessions) for (const e of (s.entries || [])) set[e.exercise] = true;
   return Object.keys(set).sort();
 }
+/* ============================================================
+   TRAIN PROGRAM (LL-647) — a template, an enrollment per profile,
+   double progression, rest timer, check-ins.
+   Templates are impersonal and ship in every build. An ENROLLMENT is a
+   person's dated copy of the cycle and lives under S.training[pid]. Nothing
+   here reads nutrition, and nothing here is ever copied between profiles.
+   Roundtable 2026-11-10 (Brennan/Achebe): RIR is required for a suggestion
+   and never assumed; a suggestion applies to the NEXT session only; the
+   explosive opener for a minor stays first on lift days.
+   ============================================================ */
+const LOAD_LABEL = { total: "total incl. bar", perDumbbell: "per dumbbell", perSide: "per side", machine: "the stack or pin setting" };
+const EXERCISES = {
+  bb_bench:    { id: "bb_bench", name: "Barbell bench press", muscles: "chest, front delts, triceps", equipment: "barbell, bench, spotter or safeties", load: "total",
+                 setup: "Eyes under the bar, feet flat, shoulder blades pulled back and down, grip so the forearms are vertical at the chest.",
+                 cues: ["Lower under control to the lower chest", "Press up and slightly back, elbows under the bar", "A spotter or correctly set safety bars every set"], subs: ["db_bench", "chest_press"] },
+  db_bench:    { id: "db_bench", name: "Dumbbell bench press", muscles: "chest, front delts, triceps", equipment: "dumbbells, bench", load: "perDumbbell",
+                 setup: "Kick the dumbbells up as you lie back, feet flat, shoulder blades set.", cues: ["Elbows about 45° from the body", "Lower until the upper arm is level with the bench", "Press up without clanking the bells"], subs: ["bb_bench", "chest_press"] },
+  chest_press: { id: "chest_press", name: "Chest-press machine", muscles: "chest, front delts, triceps", equipment: "machine", load: "machine",
+                 setup: "Seat so the handles sit at mid-chest. Note the seat number.", cues: ["Shoulder blades back before the first rep", "Press smoothly, do not lock out hard"], subs: ["bb_bench", "db_bench"] },
+  db_ohp:      { id: "db_ohp", name: "Seated dumbbell shoulder press", muscles: "front and side delts, triceps", equipment: "dumbbells, upright bench", load: "perDumbbell",
+                 setup: "Back against the pad, dumbbells at shoulder height, palms forward or slightly turned in.", cues: ["Press up and slightly in", "Lower to ear height under control", "Ribs down — no arching off the pad"], subs: ["mach_ohp"] },
+  mach_ohp:    { id: "mach_ohp", name: "Machine shoulder press", muscles: "front and side delts, triceps", equipment: "machine", load: "machine",
+                 setup: "Handles start at shoulder height. Note the seat number.", cues: ["Press without shrugging", "Stop short of a hard lockout"], subs: ["db_ohp"] },
+  db_incline:  { id: "db_incline", name: "Incline dumbbell bench press", muscles: "upper chest, front delts, triceps", equipment: "dumbbells, incline bench 30°", load: "perDumbbell",
+                 setup: "Bench at a low incline, feet flat, shoulder blades back.", cues: ["Lower to the upper chest", "Elbows under the dumbbells", "Smooth press, no bounce"], subs: ["bb_bench", "chest_press"] },
+  cable_lat:   { id: "cable_lat", name: "Cable lateral raise", muscles: "side delts", equipment: "cable, low pulley", load: "machine",
+                 setup: "Stand beside the stack, handle in the far hand, cable crossing the body.", cues: ["Lead with the elbow, slight bend", "Raise to shoulder height, pause a beat", "Lower slowly — the lowering is the work"], subs: ["db_lat"] },
+  db_lat:      { id: "db_lat", name: "Dumbbell lateral raise", muscles: "side delts", equipment: "dumbbells", load: "perDumbbell",
+                 setup: "Stand tall, slight forward lean, dumbbells at the sides.", cues: ["Lead with the elbows", "Stop at shoulder height", "No swing from the hips"], subs: ["cable_lat"] },
+  rope_push:   { id: "rope_push", name: "Rope triceps pushdown", muscles: "triceps", equipment: "cable, rope", load: "machine",
+                 setup: "High pulley, elbows pinned to the sides, slight forward lean.", cues: ["Elbows stay still", "Split the rope at the bottom", "Control the return to chest height"], subs: [] },
+  lat_pd:      { id: "lat_pd", name: "Neutral-grip lat pulldown", muscles: "lats, upper back, biceps", equipment: "cable, neutral handle", load: "machine",
+                 setup: "Knees under the pad, tall chest, grip shoulder width.", cues: ["Pull the elbows down to the ribs", "Chest up, no leaning way back", "Let the shoulders rise at the top for a full stretch"], subs: ["asst_pullup"] },
+  asst_pullup: { id: "asst_pullup", name: "Assisted neutral-grip pull-up", muscles: "lats, upper back, biceps", equipment: "assisted pull-up machine", load: "machine",
+                 setup: "Knees on the pad, neutral grip. The weight set is the assistance — more is easier.", cues: ["Pull the elbows down", "Full hang at the bottom", "Chin over the hands, not the chin reaching"], subs: ["lat_pd"] },
+  cs_row:      { id: "cs_row", name: "Chest-supported row", muscles: "mid back, lats, rear delts, biceps", equipment: "incline bench + dumbbells, or chest-supported row machine", load: "perDumbbell",
+                 setup: "Chest on the pad, arms hanging straight, neutral spine.", cues: ["Pull the elbows back and slightly out", "Squeeze the shoulder blades at the top", "Lower until the arms are straight"], subs: ["cs_row_mach", "cable_row"] },
+  cs_row_mach: { id: "cs_row_mach", name: "Chest-supported row machine", muscles: "mid back, lats, rear delts, biceps", equipment: "machine", load: "machine",
+                 setup: "Chest on the pad, seat so the handles are at the lower chest. Note the seat number.", cues: ["Elbows back, shoulder blades together", "Full stretch at the front"], subs: ["cs_row", "cable_row"] },
+  cable_row:   { id: "cable_row", name: "Seated cable row", muscles: "mid back, lats, biceps", equipment: "cable, low pulley, neutral handle", load: "machine",
+                 setup: "Feet on the plate, knees soft, tall chest.", cues: ["Pull to the belly button", "Chest stays up — do not rock", "Let the shoulder blades move forward at the stretch"], subs: ["cs_row"] },
+  rev_pec:     { id: "rev_pec", name: "Reverse pec deck", muscles: "rear delts, upper back", equipment: "machine", load: "machine",
+                 setup: "Face the pad, handles at shoulder height, slight bend in the elbows.", cues: ["Pull back with the elbows wide", "Pause at the back", "Return slowly"], subs: [] },
+  cable_curl:  { id: "cable_curl", name: "Cable curl", muscles: "biceps", equipment: "cable, low pulley, straight or EZ handle", load: "machine",
+                 setup: "Stand a step back from the stack, elbows at the sides.", cues: ["Elbows stay in front of the ribs", "Full curl, then lower all the way", "No shoulder swing"], subs: ["db_curl"] },
+  db_curl:     { id: "db_curl", name: "Dumbbell curl", muscles: "biceps", equipment: "dumbbells", load: "perDumbbell",
+                 setup: "Stand or sit, dumbbells at the sides.", cues: ["Turn the palm up as you curl", "Lower all the way", "Elbows still"], subs: ["cable_curl"] },
+  db_hammer:   { id: "db_hammer", name: "Dumbbell hammer curl", muscles: "biceps, brachialis, forearms", equipment: "dumbbells", load: "perDumbbell",
+                 setup: "Palms facing in, dumbbells at the sides.", cues: ["Curl with the thumb up", "Elbows stay at the sides", "Control the lowering"], subs: ["db_curl"] },
+  bb_squat:    { id: "bb_squat", name: "Barbell back squat", muscles: "quads, glutes, adductors, trunk", equipment: "barbell, rack, safety bars", load: "total",
+                 setup: "Bar on the upper back, hands close, stand up and take two steps back. Feet about shoulder width, toes slightly out.", cues: ["Big breath, brace, sit down between the hips", "Knees track over the toes", "Drive up through the whole foot; safety bars set just below the bottom"], subs: ["hack_squat", "goblet"] },
+  hack_squat:  { id: "hack_squat", name: "Hack squat", muscles: "quads, glutes", equipment: "machine", load: "machine",
+                 setup: "Back flat on the pad, feet mid-platform.", cues: ["Lower under control", "Push through the whole foot", "Do not lock the knees hard at the top"], subs: ["bb_squat", "goblet"] },
+  goblet:      { id: "goblet", name: "Goblet squat", muscles: "quads, glutes, trunk", equipment: "one dumbbell or kettlebell", load: "total",
+                 setup: "Hold the weight at the chest, elbows down, feet shoulder width.", cues: ["Sit between the hips", "Elbows inside the knees at the bottom", "Chest tall"], subs: ["bb_squat", "hack_squat"] },
+  leg_press:   { id: "leg_press", name: "Leg press", muscles: "quads, glutes", equipment: "machine", load: "machine",
+                 setup: "Feet mid-platform, shoulder width, back and hips flat on the pad.", cues: ["Lower until the hips want to lift — then stop", "Press without locking the knees", "Knees track with the toes"], subs: ["hack_squat"] },
+  seated_curl: { id: "seated_curl", name: "Seated leg curl", muscles: "hamstrings", equipment: "machine", load: "machine",
+                 setup: "Knee joint in line with the machine pivot, thigh pad snug. Note the seat number.", cues: ["Curl fully", "Return slowly to a full stretch", "Hips stay down"], subs: ["lying_curl"] },
+  lying_curl:  { id: "lying_curl", name: "Lying leg curl", muscles: "hamstrings", equipment: "machine", load: "machine",
+                 setup: "Knees just off the edge of the pad, ankle pad at the heel.", cues: ["Curl fully without lifting the hips", "Lower slowly"], subs: ["seated_curl"] },
+  stand_calf:  { id: "stand_calf", name: "Standing calf raise", muscles: "calves (gastrocnemius)", equipment: "machine or step + dumbbell", load: "machine",
+                 setup: "Balls of the feet on the edge, heels free.", cues: ["Full stretch at the bottom, pause", "Rise all the way up", "Slow on the way down"], subs: ["seat_calf"] },
+  seat_calf:   { id: "seat_calf", name: "Seated calf raise", muscles: "calves (soleus)", equipment: "machine", load: "machine",
+                 setup: "Knee pad snug, balls of the feet on the edge.", cues: ["Pause at the stretch", "Rise fully", "Slow lowering"], subs: ["stand_calf"] },
+  cable_crunch:{ id: "cable_crunch", name: "Cable crunch", muscles: "abs", equipment: "cable, rope", load: "machine",
+                 setup: "Kneel facing the stack, rope beside the head.", cues: ["Curl the ribs toward the hips", "Hips stay still", "Breathe out as you crunch"], subs: [] },
+  trap_dl:     { id: "trap_dl", name: "Trap-bar deadlift", muscles: "glutes, hamstrings, quads, back, grip", equipment: "trap bar", load: "total",
+                 setup: "Stand in the middle of the bar, feet hip width, grip the handles, hips back, chest up.", cues: ["Brace, push the floor away", "Stand tall — no lean back at the top", "Reset the position and brace between every rep"], subs: ["db_rdl"] },
+  db_rdl:      { id: "db_rdl", name: "Dumbbell Romanian deadlift", muscles: "hamstrings, glutes, back", equipment: "dumbbells", load: "perDumbbell",
+                 setup: "Dumbbells in front of the thighs, soft knees.", cues: ["Hips back, dumbbells slide down the thighs", "Stop where the hamstrings pull hard", "Stand up by driving the hips forward"], subs: ["trap_dl"] },
+  rev_lunge:   { id: "rev_lunge", name: "Supported dumbbell reverse lunge", muscles: "quads, glutes", equipment: "one dumbbell, a rack or wall for the free hand", load: "perDumbbell", perSide: true,
+                 setup: "Dumbbell in one hand, the other hand on the rack.", cues: ["Step back, lower the back knee under control", "Front shin close to vertical", "Push through the front foot to stand"], subs: ["split_squat", "sl_press"] },
+  split_squat: { id: "split_squat", name: "Supported split squat", muscles: "quads, glutes", equipment: "dumbbell optional, a rack for the free hand", load: "perDumbbell", perSide: true,
+                 setup: "Feet staggered, hand on the rack.", cues: ["Lower straight down", "Front knee over the toes", "All reps one side, then switch"], subs: ["rev_lunge", "sl_press"] },
+  sl_press:    { id: "sl_press", name: "Single-leg press", muscles: "quads, glutes", equipment: "leg press machine", load: "machine", perSide: true,
+                 setup: "One foot mid-platform, the other on the floor or frame.", cues: ["Lower under control", "Knee tracks with the toes"], subs: ["rev_lunge"] },
+  pallof:      { id: "pallof", name: "Pallof press", muscles: "obliques, trunk", equipment: "cable at chest height, or band", load: "machine", perSide: true,
+                 setup: "Stand sideways to the stack, handle at the chest, feet shoulder width.", cues: ["Press the handle straight out and hold a beat", "Hips and shoulders stay square", "All reps one side, then switch"], subs: [] }
+};
+/* Days and slots. `sets` are WORKING sets; warm-ups are tracked separately.
+   rest is seconds. slot order is the exercise identity inside a day. */
+const PROGRAM_TEMPLATES = [{
+  id: "five-day-strength-muscle", version: 1, name: "Five-Day Strength & Muscle", weeks: 8,
+  cycle: ["push", "pull", "legs", "rest-a", "upper", "lower", "rest-b"],
+  days: {
+    push:  { name: "Push", sub: "chest, shoulders, triceps", kind: "lift", slots: [
+      { exId: "bb_bench", sets: 3, min: 6, max: 8, rest: 150, restMin: 120, restMax: 180, warmup: "ladder" },
+      { exId: "db_ohp", sets: 3, min: 8, max: 10, rest: 120 },
+      { exId: "db_incline", sets: 2, min: 10, max: 12, rest: 120 },
+      { exId: "cable_lat", sets: 3, min: 12, max: 15, rest: 75, restMin: 60, restMax: 90 },
+      { exId: "rope_push", sets: 3, min: 10, max: 15, rest: 75, restMin: 60, restMax: 90 } ] },
+    pull:  { name: "Pull", sub: "back, rear delts, biceps", kind: "lift", slots: [
+      { exId: "lat_pd", sets: 3, min: 8, max: 12, rest: 120 },
+      { exId: "cs_row", sets: 3, min: 8, max: 12, rest: 120 },
+      { exId: "cable_row", sets: 2, min: 10, max: 12, rest: 120 },
+      { exId: "rev_pec", sets: 2, min: 12, max: 15, rest: 75 },
+      { exId: "cable_curl", sets: 2, min: 10, max: 15, rest: 75 },
+      { exId: "db_hammer", sets: 2, min: 10, max: 15, rest: 75 } ] },
+    legs:  { name: "Legs", sub: "squat emphasis", kind: "lift", heavyLower: true, slots: [
+      { exId: "bb_squat", sets: 3, min: 6, max: 10, rest: 180, warmup: "ladder" },
+      { exId: "leg_press", sets: 2, min: 10, max: 15, rest: 120 },
+      { exId: "seated_curl", sets: 3, min: 10, max: 15, rest: 90 },
+      { exId: "stand_calf", sets: 3, min: 12, max: 20, rest: 75 },
+      { exId: "cable_crunch", sets: 2, min: 12, max: 15, rest: 60 } ] },
+    "rest-a": { name: "Rest", kind: "rest", note: "Optional easy walking and mobility. Not a lifting session." },
+    upper: { name: "Upper", sub: "chest, back, shoulders, arms", kind: "lift", slots: [
+      { exId: "db_incline", sets: 3, min: 8, max: 12, rest: 120 },
+      { exId: "lat_pd", sets: 3, min: 8, max: 12, rest: 120 },
+      { exId: "cs_row", sets: 2, min: 10, max: 12, rest: 120 },
+      { exId: "cable_lat", sets: 2, min: 12, max: 20, rest: 75 },
+      { exId: "rope_push", sets: 2, min: 10, max: 15, rest: 75 },
+      { exId: "cable_curl", sets: 2, min: 10, max: 15, rest: 75 } ] },
+    lower: { name: "Lower", sub: "hinge emphasis", kind: "lift", heavyLower: true, slots: [
+      { exId: "trap_dl", sets: 3, min: 6, max: 8, rest: 180, warmup: "ladder" },
+      { exId: "rev_lunge", sets: 2, min: 10, max: 12, rest: 120, perSide: true, restAfter: "both sides" },
+      { exId: "lying_curl", sets: 3, min: 10, max: 15, rest: 90 },
+      { exId: "seat_calf", sets: 3, min: 12, max: 20, rest: 75 },
+      { exId: "pallof", sets: 2, min: 10, max: 15, rest: 60, perSide: true, restAfter: "both sides" } ] },
+    "rest-b": { name: "Rest", kind: "rest", note: "Optional easy walking and mobility. Not a lifting session." }
+  }
+}];
+/* A substitute that carries ITS OWN rep range (progression never merges). */
+const SUB_RANGES = { db_rdl: { min: 8, max: 12 } };
+const tmplKey = t => t.id + "@" + t.version;
+function installTemplates(st) {
+  st.programs = st.programs || {};
+  for (const t of PROGRAM_TEMPLATES) if (!st.programs[tmplKey(t)]) st.programs[tmplKey(t)] = JSON.parse(JSON.stringify(t));
+  return st;
+}
+function programOf(key) { return (S.programs || {})[key] || null; }
+function enrollmentOf(pid) { return trainingOf(pid).enrollment || null; }
+function activeEnrollment(pid) { const e = enrollmentOf(pid); return e && e.status === "active" ? e : null; }
+function tmplDay(enr, dayKey) { const t = programOf(enr.templateKey); return t ? t.days[dayKey] : null; }
+function dayTitle(enr, dayKey) { const d = tmplDay(enr, dayKey); return d ? d.name : dayKey; }
+function weekOfOrdinal(o) { return Math.floor(o / 7) + 1; }
+
+/* Enroll: lay the cycle out from the start date, eight weeks of it. Refuses to
+   replace a live enrollment — ending one is its own deliberate act. A minor
+   must have the supervision line acknowledged first. */
+function enroll(pid, key, startDate, opts) {
+  opts = opts || {};
+  const t = programOf(key);
+  if (!t) return { ok: false, why: "No such program." };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(startDate || ""))) return { ok: false, why: "Pick a start date." };
+  const p = S.profiles[pid];
+  if (p && p.isMinor && !opts.supervised) return { ok: false, why: "For a lifter under 18, confirm a supervising adult is present for every lift first." };
+  const tr = trainingOf(pid);
+  if (tr.enrollment && tr.enrollment.status === "active") return { ok: false, why: "A program is already running on this profile. End it first." };
+  const schedule = [];
+  for (let o = 0; o < t.weeks * t.cycle.length; o++)
+    schedule.push({ ordinal: o, date: shiftDate(startDate, o), dayKey: t.cycle[o % t.cycle.length] });
+  const prev = tr.enrollment || (tr.enrollmentHistory || []).slice(-1)[0] || null;
+  tr.enrollment = {
+    templateKey: key, startDate, status: "active", reviewAt: null, supervised: !!opts.supervised, enrolledOn: isoDate(),
+    schedule, substitutions: {}, planned: {}, increments: {}, keep: {}, subLog: []
+  };
+  if (prev && opts.carry) {       // renewal: accepted loads, steps and swaps follow the lifter
+    tr.enrollment.planned = JSON.parse(JSON.stringify(prev.planned || {}));
+    tr.enrollment.increments = JSON.parse(JSON.stringify(prev.increments || {}));
+    tr.enrollment.substitutions = JSON.parse(JSON.stringify(prev.substitutions || {}));
+  }
+  save();
+  return { ok: true, enrollment: tr.enrollment };
+}
+function endEnrollment(pid, status) {
+  const tr = trainingOf(pid);
+  if (!tr.enrollment) return { ok: false, why: "No program on this profile." };
+  tr.enrollment.status = status || "ended";
+  tr.enrollment.endedOn = isoDate();
+  tr.enrollmentHistory = tr.enrollmentHistory || [];
+  tr.enrollmentHistory.push(tr.enrollment);
+  tr.enrollment = null;
+  save();
+  return { ok: true };
+}
+/* The session that belongs to a schedule row: linked by ordinal, or — for a
+   session logged before the link existed — the one on that date. */
+function sessionForRow(pid, row) {
+  const ss = trainingOf(pid).sessions;
+  return ss.find(s => s.templateRef && s.templateRef.ordinal === row.ordinal) || null;
+}
+function rowResolved(pid, row) {
+  const s = sessionForRow(pid, row);
+  return !!(s && (s.finishedAt || s.completedUnrecorded));
+}
+function rowOf(pid, date) {
+  const e = activeEnrollment(pid);
+  if (!e) return null;
+  return e.schedule.find(r => r.date === date) || null;
+}
+/* "rest" | a lift dayKey | null (no program, or a date outside the cycle). */
+function dayKeyOn(pid, date) {
+  const e = activeEnrollment(pid);
+  const r = rowOf(pid, date);
+  if (!e || !r) return null;
+  const d = tmplDay(e, r.dayKey);
+  return d && d.kind === "rest" ? "rest" : r.dayKey;
+}
+function scheduleFor(pid, today) {
+  const e = activeEnrollment(pid);
+  if (!e) return [];
+  today = today || isoDate();
+  return e.schedule.map(r => {
+    const d = tmplDay(e, r.dayKey);
+    const s = sessionForRow(pid, r);
+    let status = "upcoming";
+    if (d && d.kind === "rest") status = "rest";
+    else if (s && s.finishedAt && !s.completedUnrecorded) status = "done";
+    else if (s && s.completedUnrecorded) status = "unrecorded";
+    else if (s && !s.finishedAt) status = "open";
+    else if (r.date < today) status = "missed";
+    else if (r.date === today) status = "today";
+    return Object.assign({}, r, { status, weekIndex: weekOfOrdinal(r.ordinal), name: d ? d.name : r.dayKey, kind: d ? d.kind : "lift", session: s });
+  });
+}
+/* The first lift row nobody has finished. A missed day STAYS next — it is not
+   skipped and nothing is piled onto today. */
+function nextWorkout(pid, today) {
+  today = today || isoDate();
+  const rows = scheduleFor(pid, today);
+  const nx = rows.find(r => r.kind === "lift" && r.status !== "done" && r.status !== "unrecorded");
+  if (!nx) return null;
+  const late = nx.date < today ? daysBetween(nx.date, today) : 0;
+  return Object.assign({}, nx, { lateDays: late, shiftOffer: late > 0 && !(nx.session && !nx.session.finishedAt) ? { toDate: today } : null });
+}
+/* Move one row and everything after it by the same number of days — spacing
+   is kept, nothing is stacked. Refuses if a moved lift row would land on a
+   date that already holds a finished session of another row. */
+function shiftSchedule(pid, ordinal, toDate) {
+  const e = activeEnrollment(pid);
+  if (!e) return { ok: false, why: "No program running." };
+  const row = e.schedule.find(r => r.ordinal === ordinal);
+  if (!row) return { ok: false, why: "No such day." };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(toDate || ""))) return { ok: false, why: "Pick a date." };
+  const delta = daysBetween(row.date, toDate);
+  if (!delta) return { ok: true, moved: 0 };
+  const taken = {};
+  for (const r of e.schedule) if (r.ordinal < ordinal || rowResolved(pid, r)) taken[r.date] = r;
+  const moving = e.schedule.filter(r => r.ordinal >= ordinal && !rowResolved(pid, r));
+  for (const r of moving) {
+    const nd = shiftDate(r.date, delta);
+    const clash = taken[nd];
+    if (clash && clash.ordinal !== r.ordinal) return { ok: false, why: dayTitle(e, r.dayKey) + " would land on " + fmtDate(nd) + ", which already has " + dayTitle(e, clash.dayKey) + ". Nothing was moved." };
+  }
+  for (const r of moving) {
+    const s = sessionForRow(pid, r);
+    r.date = shiftDate(r.date, delta);
+    if (s && !s.finishedAt) s.date = r.date;     // an open, empty-of-work session follows its day
+  }
+  e.schedule.sort((a, b) => a.ordinal - b.ordinal);
+  save();
+  return { ok: true, moved: moving.length, delta };
+}
+function setRowDate(pid, ordinal, date) {
+  const e = activeEnrollment(pid);
+  if (!e) return { ok: false, why: "No program running." };
+  const row = e.schedule.find(r => r.ordinal === ordinal);
+  if (!row) return { ok: false, why: "No such day." };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ""))) return { ok: false, why: "Pick a date." };
+  if (rowResolved(pid, row)) return { ok: false, why: "That day is already finished. Its date stays." };
+  if (e.schedule.some(r => r !== row && r.date === date && tmplDay(e, r.dayKey) && tmplDay(e, r.dayKey).kind === "lift" && tmplDay(e, row.dayKey).kind === "lift"))
+    return { ok: false, why: "Another lifting day is already on " + fmtDate(date) + "." };
+  const s = sessionForRow(pid, row);
+  row.date = date;
+  if (s && !s.finishedAt) s.date = date;
+  save();
+  return { ok: true };
+}
+
+/* The exercise a slot resolves to for this lifter, after any swap. */
+function slotExercise(enr, dayKey, slot) {
+  const d = tmplDay(enr, dayKey);
+  const sl = d && d.slots ? d.slots[slot] : null;
+  if (!sl) return null;
+  const sub = (enr.substitutions || {})[dayKey + ":" + slot];
+  const exId = sub ? sub.exId : sl.exId;
+  const ex = EXERCISES[exId] || EXERCISES[sl.exId];
+  const range = sub && SUB_RANGES[exId] ? SUB_RANGES[exId] : { min: sl.min, max: sl.max };
+  return { exId, ex, sets: sl.sets, min: range.min, max: range.max, rest: sl.rest, restMin: sl.restMin || null, restMax: sl.restMax || null,
+    perSide: !!(sl.perSide || (ex && ex.perSide)), restAfter: sl.restAfter || null, warmup: sl.warmup || "specific", swappedFrom: sub ? sl.exId : null };
+}
+function rirTargetFor(ordinal) { return weekOfOrdinal(ordinal) <= 2 ? 3 : 2; }
+/* Attach today's row to the session on that date, seeding one entry per slot.
+   Idempotent: entries are keyed by (dayKey, slot) and never duplicated, and a
+   session already on the date is reused, never doubled. */
+function sessionForDay(pid, date) {
+  const e = activeEnrollment(pid);
+  const row = e ? e.schedule.find(r => r.date === date) : null;
+  const tr = trainingOf(pid);
+  let s = tr.sessions.find(x => x.date === date) || (row ? sessionForRow(pid, row) : null);
+  if (!row) return s || null;
+  const d = tmplDay(e, row.dayKey);
+  if (!s) { s = { date, name: d.name, entries: [] }; tr.sessions.push(s); tr.sessions.sort((a, b) => (a.date < b.date ? -1 : 1)); }
+  s.templateRef = { templateKey: e.templateKey, dayKey: row.dayKey, ordinal: row.ordinal, weekIndex: weekOfOrdinal(row.ordinal) };
+  if (d.kind === "lift") {
+    if (!s.name || s.name === "Session") s.name = d.name;
+    d.slots.forEach((sl, i) => {
+      const r = slotExercise(e, row.dayKey, i);
+      let en = s.entries.find(x => x.dayKey === row.dayKey && x.slot === i);
+      if (!en) {
+        en = { exercise: r.ex.name, exId: r.exId, dayKey: row.dayKey, slot: i, sets: [], technique: null };
+        s.entries.push(en);
+      }
+      en.target = { sets: r.sets, min: r.min, max: r.max, rest: r.rest, restMin: r.restMin, restMax: r.restMax, perSide: r.perSide, restAfter: r.restAfter, warmup: r.warmup, rirTarget: rirTargetFor(row.ordinal) };
+      if (!en.sets.length && en.exId !== r.exId) { en.exId = r.exId; en.exercise = r.ex.name; }   // a swap made before any set was logged
+    });
+    /* template work first, in slot order; anything else (P90X blocks, free
+       entries) after it. A minor's opener is restored to the front by
+       reorderSession, which runs after this. */
+    s.entries.sort((a, b) => (a.target ? a.slot : 99) - (b.target ? b.slot : 99));
+  }
+  return s;
+}
+/* "Completed, details not recorded": a session that happened, with nothing
+   invented about it. Any set logged later clears the flag. */
+function markCompletedUnrecorded(pid, ordinal) {
+  const e = activeEnrollment(pid);
+  const row = e ? e.schedule.find(r => r.ordinal === ordinal) : null;
+  if (!row) return { ok: false, why: "No such day." };
+  const s = sessionForDay(pid, row.date);
+  if (!s) return { ok: false, why: "Could not open that day." };
+  if (s.entries.some(x => (x.sets || []).length)) return { ok: false, why: "Sets are already logged on this day — finish it instead." };
+  s.completedUnrecorded = true;
+  s.finishedAt = s.finishedAt || new Date().toISOString();
+  save();
+  return { ok: true };
+}
+function normSet(x) {
+  return { reps: x.reps, lb: x.lb, rpe: x.rpe, unit: x.unit || "lb", warmup: x.warmup === true, status: x.status || "completed",
+    rir: (x.rir == null ? null : x.rir), note: x.note || "", discomfort: !!x.discomfort, plannedReps: x.plannedReps, plannedLb: x.plannedLb, sideReps: x.sideReps || null };
+}
+const workingSets = e => (e.sets || []).map(normSet).filter(s => !s.warmup && s.status === "completed");
+function entryKeyOf(e) { return e.exId + "|" + e.dayKey + "|" + e.slot; }
+/* Finished sessions carrying this exact slot, newest first. A row in Pull and a
+   row in Upper are different keys and never share history. */
+function historyFor(pid, exId, dayKey, slot, beforeDate) {
+  const out = [];
+  for (const s of trainingOf(pid).sessions) {
+    if (!s.finishedAt || s.completedUnrecorded) continue;
+    if (beforeDate && s.date >= beforeDate) continue;
+    const en = (s.entries || []).find(x => x.exId === exId && x.dayKey === dayKey && x.slot === slot);
+    if (en && workingSets(en).length) out.push({ date: s.date, entry: en, sets: workingSets(en), technique: en.technique });
+  }
+  return out.sort((a, b) => (a.date < b.date ? 1 : -1));
+}
+/* Any history on this exercise regardless of slot — shown for reference only. */
+function historyAny(pid, exId, beforeDate) {
+  const out = [];
+  for (const s of trainingOf(pid).sessions) {
+    if (!s.finishedAt || s.completedUnrecorded) continue;
+    if (beforeDate && s.date >= beforeDate) continue;
+    for (const en of (s.entries || [])) if (en.exId === exId && workingSets(en).length) out.push({ date: s.date, dayKey: en.dayKey, sets: workingSets(en) });
+  }
+  return out.sort((a, b) => (a.date < b.date ? 1 : -1));
+}
+function modalLoad(sets) {
+  const c = {};
+  for (const s of sets) c[s.lb] = (c[s.lb] || 0) + 1;
+  return +Object.keys(c).sort((a, b) => c[b] - c[a] || b - a)[0];
+}
+/* Three sessions in a row, same load, total reps strictly falling by at least
+   two. Fewer sessions, a load change or a missing rep count all mean "no
+   trend" — never a guess. */
+function declineTrend(pid, exId, dayKey, slot, beforeDate, current) {
+  const h = (current && current.sets && current.sets.length ? [current] : []).concat(historyFor(pid, exId, dayKey, slot, beforeDate)).slice(0, 3);
+  if (h.length < 3) return { decline: false, sessions: [] };
+  const loads = h.map(x => modalLoad(x.sets));
+  if (loads.some(l => l !== loads[0])) return { decline: false, sessions: [] };
+  const tot = h.map(x => x.sets.filter(s => s.lb === loads[0]).reduce((a, s) => a + (s.reps > 0 ? s.reps : NaN), 0));
+  if (tot.some(isNaN)) return { decline: false, sessions: [] };
+  // h is newest first: tot[2] oldest, tot[0] newest
+  const falling = tot[2] > tot[1] && tot[1] > tot[0] && tot[2] - tot[0] >= 2;
+  return { decline: falling, sessions: falling ? h.map(x => x.date) : [] };
+}
+/* Double progression on the MOST RECENT finished session of this slot.
+   Warm-ups never count. A missing RIR or technique answer is an ask, not a yes. */
+function progressionCall(pid, exId, dayKey, slot, beforeDate) {
+  const e = enrollmentOf(pid);
+  if (!e) return { suggest: "hold", why: "No program on this profile." };
+  const key = exId + "|" + dayKey + "|" + slot;
+  const h = historyFor(pid, exId, dayKey, slot, beforeDate);
+  if (!h.length) return { suggest: "hold", why: "No finished session for this one yet.", key };
+  return judgeEntry(pid, h[0]);
+}
+/* The rules, applied to one entry record {date, entry, sets(working)}. Used for
+   the last finished session (progressionCall) and for today's entry the moment
+   it is marked done. */
+function judgeEntry(pid, last) {
+  const e = enrollmentOf(pid);
+  if (!e || !last || !last.entry || !last.entry.target) return null;
+  const exId = last.entry.exId, dayKey = last.entry.dayKey, slot = last.entry.slot;
+  const key = exId + "|" + dayKey + "|" + slot;
+  const beforeDate = last.date;
+  if (!last.sets.length) return { suggest: "hold", why: "", key };
+  const target = last.entry.target || {};
+  const rirT = target.rirTarget != null ? target.rirTarget : 2;
+  const sets = last.sets;
+  if (sets.some(s => s.discomfort) || (last.entry.discomfort)) return { suggest: "review", why: "Discomfort was flagged last time. Worth reviewing recovery or trimming a set before adding load.", key, date: last.date };
+  const dt = declineTrend(pid, exId, dayKey, slot, beforeDate, last);
+  if (dt.decline) return { suggest: "review", why: "Reps at " + R(modalLoad(sets)) + " lb have fallen three sessions running. Worth reviewing recovery or trimming a set.", key, sessions: dt.sessions, date: last.date };
+  const need = target.sets || 1, top = target.max || 0;
+  const repsOf = s => (s.sideReps && s.sideReps.length === 2 ? Math.min(s.sideReps[0], s.sideReps[1]) : s.reps);
+  const repsStr = sets.map(repsOf).join("/");
+  if (sets.length < need) {
+    const wk = (last.entry.target && last.entry.target.rirTarget === 3);
+    return { suggest: "hold", why: sets.length + " of " + need + " working sets logged" + (wk ? " — fewer sets is fine while settling in." : ". Add reps and sets before weight."), key, date: last.date, reps: repsStr };
+  }
+  if (!sets.every(s => repsOf(s) >= top)) return { suggest: "hold", why: repsStr + ": add reps before weight. Weight moves at " + top + "/" + top + "/" + top + ".", key, date: last.date, reps: repsStr };
+  const missing = [];
+  if (sets.some(s => s.rir == null)) missing.push("reps in reserve on every working set");
+  if (last.entry.technique == null) missing.push("whether the reps were clean");
+  if (missing.length) return { suggest: "askRir", why: "Top of the range hit (" + repsStr + "). To suggest more weight the app needs " + missing.join(" and ") + ". Nothing is assumed.", key, missing, date: last.date, reps: repsStr };
+  if (last.entry.technique !== "ok") return { suggest: "hold", why: repsStr + " but form broke down. Same weight next time, cleaner reps.", key, date: last.date, reps: repsStr };
+  if (!sets.every(s => s.rir >= rirT)) return { suggest: "hold", why: repsStr + " with less than " + rirT + " in reserve. Same weight next time until it feels easier.", key, date: last.date, reps: repsStr };
+  const lastLoad = modalLoad(sets);
+  const inc = (e.increments || {})[exId];
+  return { suggest: "add", why: repsStr + " at " + R(lastLoad) + " lb with " + rirT + "+ in reserve and clean reps. The top of the range, every set.", key, date: last.date, reps: repsStr,
+    lastLoad, nextLoad: inc ? lastLoad + inc : null, increment: inc || null, min: target.min };
+}
+/* Acceptance writes a PLANNED load for the next session of this slot and
+   touches no logged set. Keep records the choice so the question is not re-asked. */
+function acceptSuggestion(pid, exId, dayKey, slot, lb) {
+  const e = activeEnrollment(pid);
+  if (!e) return { ok: false, why: "No program running." };
+  if (!(lb > 0)) return { ok: false, why: "Set the smallest weight step you have first." };
+  e.planned[exId + "|" + dayKey + "|" + slot] = { lb, acceptedOn: isoDate() };
+  delete e.keep[exId + "|" + dayKey + "|" + slot];
+  save();
+  return { ok: true };
+}
+function keepLoad(pid, exId, dayKey, slot) {
+  const e = activeEnrollment(pid);
+  if (!e) return { ok: false, why: "No program running." };
+  const k = exId + "|" + dayKey + "|" + slot;
+  e.keep[k] = isoDate();
+  delete e.planned[k];
+  save();
+  return { ok: true };
+}
+function setIncrement(pid, exId, lb) {
+  const e = activeEnrollment(pid);
+  if (!e) return { ok: false, why: "No program running." };
+  if (!(lb > 0)) return { ok: false, why: "The step has to be above zero." };
+  e.increments[exId] = lb;
+  save();
+  return { ok: true };
+}
+function plannedLoad(pid, exId, dayKey, slot) {
+  const e = enrollmentOf(pid);
+  const p = e && e.planned[exId + "|" + dayKey + "|" + slot];
+  return p ? p.lb : null;
+}
+/* A swap is offered, never silent. Today only, or remembered for the slot.
+   The new exercise starts its own history; the old one keeps its own. */
+function setSubstitution(pid, date, dayKey, slot, exId, remember) {
+  const e = activeEnrollment(pid);
+  if (!e) return { ok: false, why: "No program running." };
+  const r = slotExercise(e, dayKey, slot);
+  if (!r) return { ok: false, why: "No such exercise in the program." };
+  const base = tmplDay(e, dayKey).slots[slot].exId;
+  const allowed = [base].concat(EXERCISES[base].subs || []);
+  if (!allowed.includes(exId)) return { ok: false, why: "That is not one of the offered swaps." };
+  if (remember) {
+    if (exId === base) delete e.substitutions[dayKey + ":" + slot];
+    else e.substitutions[dayKey + ":" + slot] = { exId, from: base, since: date };
+  }
+  const s = sessionForDay(pid, date);
+  if (s) {
+    const en = s.entries.find(x => x.dayKey === dayKey && x.slot === slot);
+    if (en) {
+      if (en.sets.length && en.exId !== exId) return { ok: false, why: "Sets are already logged on " + en.exercise + " today. Remove them first, or swap next time." };
+      en.exId = exId; en.exercise = EXERCISES[exId].name;
+      const range = SUB_RANGES[exId] && exId !== base ? SUB_RANGES[exId] : { min: tmplDay(e, dayKey).slots[slot].min, max: tmplDay(e, dayKey).slots[slot].max };
+      en.target = Object.assign({}, en.target, { min: range.min, max: range.max, perSide: !!(EXERCISES[exId].perSide || tmplDay(e, dayKey).slots[slot].perSide) });
+    }
+  }
+  e.subLog.push({ date, dayKey, slot, from: base, to: exId, remember: !!remember });
+  save();
+  return { ok: true };
+}
+/* Week-8 review: available once the last lift row is resolved or its date has
+   passed. Counts, not scores. Nothing is replaced by it. */
+function weekReview(pid, today) {
+  const e = activeEnrollment(pid);
+  if (!e) return null;
+  today = today || isoDate();
+  const rows = scheduleFor(pid, today);
+  const lifts = rows.filter(r => r.kind === "lift");
+  const lastLift = lifts[lifts.length - 1];
+  const ready = lastLift && (lastLift.status === "done" || lastLift.status === "unrecorded" || lastLift.date < today);
+  const done = lifts.filter(r => r.status === "done").length, unrec = lifts.filter(r => r.status === "unrecorded").length;
+  const perSlot = [];
+  const t = programOf(e.templateKey);
+  for (const dk of t.cycle.filter((k, i, a) => a.indexOf(k) === i)) {
+    const d = t.days[dk];
+    if (d.kind !== "lift") continue;
+    d.slots.forEach((sl, i) => {
+      const r = slotExercise(e, dk, i);
+      const h = historyFor(pid, r.exId, dk, i);
+      if (!h.length) return;
+      const best = x => x.sets.reduce((a, s) => (s.lb > a.lb || (s.lb === a.lb && s.reps > a.reps) ? s : a), { lb: -1, reps: 0 });
+      perSlot.push({ day: d.name, name: r.ex.name, first: best(h[h.length - 1]), last: best(h[0]), sessions: h.length });
+    });
+  }
+  const ck = Object.values(trainingOf(pid).checkins || {}).length;
+  return { ready, done, unrecorded: unrec, planned: lifts.length, perSlot, checkins: ck, lastDate: lastLift ? lastLift.date : null };
+}
+/* Warm-up guidance. Numbers appear ONLY when a working load is planned for
+   this slot; there is no max anywhere to compute from. */
+function warmupText(pid, dayKey, slot, plannedLb) {
+  const e = enrollmentOf(pid);
+  const r = e ? slotExercise(e, dayKey, slot) : null;
+  if (!r) return "";
+  const ladder = r.warmup === "ladder";
+  let t = ladder ? "3–4 progressively heavier warm-up sets first, low reps, well short of fatigue."
+                 : (slot === 0 ? "A movement-specific warm-up set or two first, well short of fatigue." : "A light warm-up set if you want one.");
+  if (ladder && plannedLb > 0) {
+    const pct = [0.5, 0.7, 0.85].map(k => R(plannedLb * k / 5) * 5);
+    t += " Roughly " + pct.join(" / ") + " lb (about 50 / 70 / 85% of the planned " + R(plannedLb) + " lb), logged as warm-ups.";
+  }
+  return t;
+}
+function sessionEstimateMin(enr, dayKey) {
+  const d = tmplDay(enr, dayKey);
+  if (!d || d.kind !== "lift") return 0;
+  let sec = 5 * 60 + 4 * 60;          // easy cardio + warm-up sets
+  for (const sl of d.slots) sec += sl.sets * (40 + sl.rest) + 120;   // work + rest + setup between exercises
+  return Math.round(sec / 60 / 5) * 5;
+}
+/* ---- sets with status ---- */
+function addSetFull(pid, dateStr, exercise, set) {
+  const s = sessionOn(pid, dateStr);
+  if (!s) return { ok: false, why: "No session open." };
+  const e = s.entries.find(x => x.exercise === exercise);
+  if (!e) return { ok: false, why: "That exercise is not in this session." };
+  const st = set.status || "completed";
+  if (st !== "skipped" && !(set.reps > 0)) return { ok: false, why: "Reps must be above zero." };
+  const out = { reps: st === "skipped" ? 0 : set.reps, lb: set.lb == null || isNaN(set.lb) ? 0 : set.lb };
+  if (set.warmup) out.warmup = true;
+  if (st !== "completed") out.status = st;
+  if (set.rir != null && !isNaN(set.rir)) out.rir = set.rir;
+  if (set.note) out.note = String(set.note).slice(0, 200);
+  if (set.discomfort) out.discomfort = true;
+  if (set.plannedReps != null) out.plannedReps = set.plannedReps;
+  if (set.plannedLb != null) out.plannedLb = set.plannedLb;
+  if (set.sideReps) out.sideReps = set.sideReps;
+  e.sets.push(out);
+  if (s.completedUnrecorded && st === "completed") { delete s.completedUnrecorded; delete s.finishedAt; }   // results are being backfilled
+  save();
+  noteWrite();
+  return { ok: true, set: out };
+}
+function updateSet(pid, dateStr, exercise, idx, patch) {
+  const s = sessionOn(pid, dateStr);
+  if (!s) return { ok: false, why: "No session open." };
+  const e = s.entries.find(x => x.exercise === exercise);
+  if (!e || !e.sets[idx]) return { ok: false, why: "No such set." };
+  const x = e.sets[idx];
+  if (patch.reps != null) { if (!(patch.reps > 0) && patch.status !== "skipped" && x.status !== "skipped") return { ok: false, why: "Reps must be above zero." }; x.reps = patch.reps; }
+  if (patch.lb != null) x.lb = isNaN(patch.lb) ? 0 : patch.lb;
+  if (patch.warmup != null) { if (patch.warmup) x.warmup = true; else delete x.warmup; }
+  if (patch.status != null) { if (patch.status === "completed") delete x.status; else x.status = patch.status; }
+  if (patch.rir !== undefined) { if (patch.rir == null || isNaN(patch.rir)) delete x.rir; else x.rir = patch.rir; }
+  if (patch.note !== undefined) { if (patch.note) x.note = String(patch.note).slice(0, 200); else delete x.note; }
+  if (patch.discomfort != null) { if (patch.discomfort) x.discomfort = true; else delete x.discomfort; }
+  save();
+  return { ok: true };
+}
+function setTechnique(pid, dateStr, exercise, v) {
+  const s = sessionOn(pid, dateStr);
+  const e = s && s.entries.find(x => x.exercise === exercise);
+  if (!e) return { ok: false, why: "Not in this session." };
+  e.technique = v === "ok" || v === "breakdown" ? v : null;
+  save();
+  return { ok: true };
+}
+/* ---- rest timer: a pure function of (state, now); per lifter ---- */
+function restRemaining(rt, now) {
+  if (!rt) return 0;
+  const elapsed = ((rt.pausedAt || now) - rt.startedAt) + (rt.elapsedBefore || 0);
+  return Math.max(0, rt.seconds * 1000 - elapsed) / 1000;
+}
+function restStart(pid, seconds, label, now) {
+  trainingOf(pid).rest = { startedAt: now || Date.now(), seconds: Math.max(5, seconds || 90), pausedAt: null, elapsedBefore: 0, label: label || "" , alerted: false };
+  save();
+  return trainingOf(pid).rest;
+}
+function restPause(pid, now) {
+  const rt = trainingOf(pid).rest; if (!rt) return;
+  now = now || Date.now();
+  if (rt.pausedAt) { rt.elapsedBefore = (rt.elapsedBefore || 0) + (rt.pausedAt - rt.startedAt); rt.startedAt = now; rt.pausedAt = null; }
+  else rt.pausedAt = now;
+  save();
+}
+function restAdd(pid, seconds) { const rt = trainingOf(pid).rest; if (!rt) return; rt.seconds += seconds; rt.alerted = false; save(); }
+function restSkip(pid) { trainingOf(pid).rest = null; save(); }
+function fmtSec(s) { s = Math.ceil(s); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
+/* ---- weekly recovery check-in ---- */
+function checkinOf(pid, weekId) { return ((trainingOf(pid).checkins || {})[weekId]) || null; }
+function saveCheckin(pid, weekId, fatigue, joints) {
+  const tr = trainingOf(pid);
+  tr.checkins = tr.checkins || {};
+  tr.checkins[weekId] = { fatigue, joints, savedAt: isoDate() };
+  save();
+  return { ok: true };
+}
+/* Best working set per exercise, first vs latest finished session — actual
+   records only, never an estimate. */
+function trendRows(pid) {
+  const byEx = {};
+  for (const s of trainingOf(pid).sessions.slice().sort((a, b) => (a.date < b.date ? -1 : 1))) {
+    if (!s.finishedAt || s.completedUnrecorded) continue;
+    for (const en of (s.entries || [])) {
+      if (!en.exId) continue;
+      const ws = workingSets(en);
+      if (!ws.length) continue;
+      const best = ws.reduce((a, x) => (x.lb > a.lb || (x.lb === a.lb && x.reps > a.reps) ? x : a), { lb: -1, reps: 0 });
+      const r = byEx[en.exId] = byEx[en.exId] || { exId: en.exId, name: en.exercise, n: 0 };
+      r.n++;
+      if (!r.first) r.first = { date: s.date, lb: best.lb, reps: best.reps };
+      r.last = { date: s.date, lb: best.lb, reps: best.reps };
+    }
+  }
+  return Object.values(byEx).filter(r => r.n >= 2);
+}
+
+/* ============================================================
+   DAY SCHEDULE (LL-648 / LL-649) — the day as an ordered checklist.
+   Replaces a printed booklet. Rows carry a hidden `at` minute for ORDER only;
+   no clock time is ever shown on a row (the user's words: "checklist, no
+   times"). Meals are the profile's own slots and tick from the food log —
+   one source of truth. Ticks live per date per profile. A missed box does
+   nothing: no colour, no copy, no carry-over (constraint 8, M16 Hana).
+   ============================================================ */
+const SCHED_KINDS = ["task", "block", "workout", "event", "reflection"];
+const WD_KEYS = ["0", "1", "2", "3", "4", "5", "6"];
+/* The public default: generic, role-neutral, no blocks, no money. Everything
+   is editable in the app; a personal list arrives by import. */
+function defaultSchedule(p) {
+  const rooms = { 1: "Kitchen", 3: "Living room", 4: "Bathroom", 5: "Bedroom", 6: "Entryway" };
+  const by = {};
+  for (const w of WD_KEYS) {
+    const wd = +w, rows = [];
+    rows.push({ id: "r_up", kind: "task", label: "Up. Water, teeth.", at: 390 });
+    rows.push({ id: "r_walk", kind: "task", label: "Walk, 15 min", at: 405, minutes: 15, tally: "Walk" });
+    if (wd !== 0) rows.push({ id: "r_move", kind: "task", label: "Home workout, 20 min", at: 480, minutes: 20, tally: "Home workout" });
+    if (wd === 2) rows.push({ id: "r_cook", kind: "task", label: "Cook a batch, 30 min", at: 600, minutes: 30, tally: "One room" });
+    else if (rooms[wd]) rows.push({ id: "r_room", kind: "task", label: "One room: " + rooms[wd] + ", 20 min", at: 600, minutes: 20, room: rooms[wd], tally: "One room" });
+    if (wd === 0) rows.push({ id: "r_plan", kind: "task", label: "Plan the week and the store run, 35 min", at: 600, minutes: 35 });
+    if (wd !== 0) rows.push({ id: "r_focus", kind: "task", label: "Focused work, 90 min", at: 660, minutes: 90, tally: "Focused work" });
+    if (wd !== 0) rows.push({ id: "r_lift", kind: "workout", label: "Workout", at: 1020, tally: "Workout" });
+    rows.push({ id: "r_refl", kind: "reflection", label: "Night reflection. Three lines.", at: 1215 });
+    rows.push({ id: "r_wind", kind: "task", label: "Wind down. Teeth. Phone away.", at: 1230 });
+    by[w] = rows;
+  }
+  const blocks = {}; for (const w of WD_KEYS) blocks[w] = [];
+  return { v: 1, template: { labels: { block: "Work block", side: "Side work", event: "Event", inBlock: "" }, byWeekday: by, blocks, top3Prompts: ["Work", "Home", "Body"] }, previous: null, days: {} };
+}
+function normalizeSchedule(sc, p) {
+  const d = defaultSchedule(p);
+  sc.v = sc.v || 1;
+  sc.template = sc.template || d.template;
+  sc.template.labels = Object.assign({}, d.template.labels, sc.template.labels || {});
+  sc.template.byWeekday = sc.template.byWeekday || {};
+  sc.template.blocks = sc.template.blocks || {};
+  for (const w of WD_KEYS) { if (!Array.isArray(sc.template.byWeekday[w])) sc.template.byWeekday[w] = d.template.byWeekday[w]; if (!Array.isArray(sc.template.blocks[w])) sc.template.blocks[w] = []; }
+  if (!Array.isArray(sc.template.top3Prompts) || sc.template.top3Prompts.length !== 3) sc.template.top3Prompts = d.template.top3Prompts;
+  if (sc.previous === undefined) sc.previous = null;
+  sc.days = sc.days || {};
+  return sc;
+}
+function scheduleOf(pid) {
+  const p = S.profiles[pid];
+  if (!p) return null;
+  if (!p.schedule) p.schedule = defaultSchedule(p);
+  return normalizeSchedule(p.schedule, p);
+}
+function dayRec(pid, date, create) {
+  const sc = scheduleOf(pid);
+  if (!sc.days[date] && create) sc.days[date] = { ticks: {}, top3: [{ text: "", done: false }, { text: "", done: false }, { text: "", done: false }], reflection: null };
+  const d = sc.days[date];
+  if (d && (!Array.isArray(d.top3) || d.top3.length !== 3)) d.top3 = [{ text: "", done: false }, { text: "", done: false }, { text: "", done: false }];
+  return d || null;
+}
+const t12 = m => { const h = Math.floor(m / 60), mi = m % 60; return ((h + 11) % 12 + 1) + ":" + String(mi).padStart(2, "0") + (h < 12 ? "a" : "p"); };
+const minOf = t => { if (!t) return null; const [h, m] = String(t).split(":").map(Number); return isNaN(h) || isNaN(m) ? null : h * 60 + m; };
+function blocksOn(pid, date) { const sc = scheduleOf(pid); return sc.template.blocks[String(parseISO(date).getDay())] || []; }
+function workoutLabel(row, pid, date) {
+  const k = dayKeyOn(pid, date);
+  const e = activeEnrollment(pid);
+  if (k === "rest") return { label: "Rest day — walk or mobility", optional: true };
+  if (k && e) return { label: "Lift" + (row.with ? " with " + row.with : "") + " — " + dayTitle(e, k), optional: false };
+  return { label: row.label || "Workout — log it in Train", optional: false };
+}
+/* The rendered, ordered list for one day. */
+function scheduleRows(pid, date) {
+  const p = S.profiles[pid];
+  const sc = scheduleOf(pid);
+  const wd = String(parseISO(date).getDay());
+  const blocks = sc.template.blocks[wd] || [];
+  const L = sc.template.labels;
+  const rows = [];
+  for (const r of sc.template.byWeekday[wd] || []) {
+    const o = { id: r.id, kind: r.kind, label: r.label, at: r.at, sub: r.note || "", optional: false, tally: r.tally || null, pri: 1 };
+    if (r.kind === "block") {
+      const b = blocks[r.blockIndex || 0];
+      o.at = b ? b[0] : r.at; o.pri = 0;
+      o.label = (L.block || "Work block") + " " + ((r.blockIndex || 0) + 1);
+      o.sub = (b ? t12(b[0]) + "–" + t12(b[1]) : "") + (r.note ? (b ? " · " : "") + r.note : "");
+      o.tally = r.tally || (L.block || "Work block") + " hours";
+    } else if (r.kind === "event") {
+      o.sub = (r.at != null && r.until != null ? t12(r.at) + "–" + t12(r.until) : "") + (r.note ? (r.at != null ? " · " : "") + r.note : "");
+    } else if (r.kind === "workout") {
+      const w = workoutLabel(r, pid, date); o.label = w.label; o.optional = w.optional;
+      if (w.optional) { const nx = nextWorkout(pid, date); if (nx) o.sub = "Next: " + nx.name + ", " + fmtDate(nx.date); }
+    } else if (r.kind === "reflection") { o.pri = 3; o.at = 9999; }
+    rows.push(o);
+  }
+  // meals: the profile's own timed slots, numbered in time order
+  const timed = (p.slots || []).map(s => ({ s, m: minOf(slotTime(s, date)) })).filter(x => x.m != null).sort((a, b) => a.m - b.m);
+  timed.forEach((x, i) => {
+    const inBlock = blocks.some(b => x.m >= b[0] && x.m < b[1]);
+    const planned = plannedItems(p, date, x.s.id).map(resolveItem).filter(Boolean).map(it => it.name);
+    rows.push({ id: "meal:" + x.s.id, kind: "meal", slotId: x.s.id, label: x.s.name + (inBlock && L.inBlock ? " " + L.inBlock : ""), at: x.m, pri: 2,
+      sub: planned.join(", "), inBlock, optional: false, tally: "Food logged", mealNo: i + 1 });
+  });
+  rows.sort((a, b) => (a.at - b.at) || (a.pri - b.pri));
+  for (const r of rows) r.done = rowDone(pid, date, r);
+  return rows;
+}
+function rowDone(pid, date, row) {
+  const d = dayRec(pid, date, false);
+  if (row.kind === "meal") return logsFor(pid, date).some(e => e.slotId === row.slotId);
+  if (row.kind === "reflection") return !!(d && d.reflection && d.reflection.savedAt);
+  if (row.kind === "workout") { const s = sessionOn(pid, date); if (s && s.finishedAt) return true; }
+  return !!(d && d.ticks && d.ticks[row.id]);
+}
+/* Today only. From the most recently started row forward, the first one not
+   done. Earlier skipped rows are never pointed at — the next slot is next. */
+function currentRow(pid, date, nowMin) {
+  if (date !== isoDate()) return null;
+  const rows = scheduleRows(pid, date);
+  if (nowMin == null) { const n = new Date(); nowMin = n.getHours() * 60 + n.getMinutes(); }
+  let a = 0;
+  rows.forEach((r, i) => { if (r.at <= nowMin + 15 && r.at < 9999) a = i; });
+  for (let i = a; i < rows.length; i++) if (!rows[i].done && !rows[i].optional) return rows[i].id;
+  return null;
+}
+function dayProgress(pid, date) {
+  const rows = scheduleRows(pid, date).filter(r => !r.optional);
+  return { done: rows.filter(r => r.done).length, total: rows.length };
+}
+function weekTally(pid, weekId) {
+  const dates = weekDates(weekId);
+  const groups = {}, order = [];
+  dates.forEach((d, di) => {
+    for (const r of scheduleRows(pid, d)) {
+      if (r.optional || !r.tally) continue;
+      if (!groups[r.tally]) { groups[r.tally] = { label: r.tally, cells: dates.map(() => null) }; order.push(r.tally); }
+      const g = groups[r.tally];
+      g.cells[di] = g.cells[di] === null ? r.done : (g.cells[di] && r.done);
+    }
+  });
+  return { dates, boxes: order.map(k => groups[k]) };
+}
+function setTick(pid, date, rowId, on) {
+  if (/^meal:/.test(rowId)) return { ok: false, why: "A meal ticks when it is logged." };
+  if (rowId === "r_refl") return { ok: false, why: "The reflection ticks when it is saved." };
+  const d = dayRec(pid, date, true);
+  d.ticks[rowId] = !!on;
+  save();
+  return { ok: true };
+}
+function setTop3(pid, date, i, text) {
+  const d = dayRec(pid, date, true);
+  if (!d.top3[i]) return { ok: false };
+  d.top3[i].text = String(text || "").slice(0, 120);
+  save();
+  return { ok: true };
+}
+function toggleTop3(pid, date, i) {
+  const d = dayRec(pid, date, true);
+  if (!d.top3[i]) return { ok: false };
+  d.top3[i].done = !d.top3[i].done;
+  save();
+  return { ok: true, done: d.top3[i].done };
+}
+/* Every field optional. Weight goes through addWeight — one source, Progress
+   sees it. An adult only; the sheet never offers it on a minor's profile. */
+function saveReflection(pid, date, r) {
+  const d = dayRec(pid, date, true);
+  const txt = v => String(v == null ? "" : v).trim().slice(0, 300);
+  const numOrNull = v => (v === "" || v == null || isNaN(+v) ? null : +v);
+  const blocks = blocksOn(pid, date);
+  d.reflection = {
+    done: txt(r.done), blocked: txt(r.blocked), tomorrow: txt(r.tomorrow),
+    money: { blocks: blocks.map((b, i) => numOrNull((r.money && r.money.blocks || [])[i])), side: { hrs: numOrNull(r.money && r.money.side && r.money.side.hrs), usd: numOrNull(r.money && r.money.side && r.money.side.usd) }, event: numOrNull(r.money && r.money.event) },
+    savedAt: Date.now()
+  };
+  let weight = null;
+  const p = S.profiles[pid];
+  if (p && !p.isMinor && r.weight != null && r.weight !== "" && +r.weight > 0) weight = addWeight(pid, +r.weight, date);
+  const distress = [d.reflection.done, d.reflection.blocked, d.reflection.tomorrow].some(hasDistress);
+  save();
+  return { ok: true, weight, distress };
+}
+/* ---- template editor (writes to template only; ticks and reflections stay) ---- */
+function schedRows(pid, wd) { return scheduleOf(pid).template.byWeekday[String(wd)]; }
+function addSchedRow(pid, wd, row) {
+  const rows = schedRows(pid, wd);
+  if (!rows) return { ok: false, why: "No such day." };
+  if (rows.length >= 40) return { ok: false, why: "That day already has 40 rows." };
+  const kind = SCHED_KINDS.includes(row.kind) ? row.kind : "task";
+  const label = String(row.label || "").trim().slice(0, 120);
+  if (!label && kind !== "block" && kind !== "reflection") return { ok: false, why: "Give the row a name." };
+  const last = rows.filter(r => r.kind !== "reflection").reduce((a, r) => Math.max(a, r.at || 0), 0);
+  const o = { id: uid("r"), kind, label, at: row.at != null && row.at >= 0 && row.at < 1440 ? row.at : Math.min(last + 15, 1439) };
+  if (row.minutes > 0) o.minutes = +row.minutes;
+  if (kind === "block") { const bl = scheduleOf(pid).template.blocks[String(wd)]; o.blockIndex = Math.min(rows.filter(r => r.kind === "block").length, Math.max(0, bl.length - 1)); }
+  if (kind === "event" && row.until != null) o.until = +row.until;
+  if (row.note) o.note = String(row.note).slice(0, 120);
+  if (row.tally) o.tally = String(row.tally).slice(0, 40);
+  if (row.with) o.with = String(row.with).slice(0, 40);
+  rows.push(o);
+  save();
+  return { ok: true, row: o };
+}
+function removeSchedRow(pid, wd, rowId) {
+  const sc = scheduleOf(pid), rows = schedRows(pid, wd);
+  const i = rows.findIndex(r => r.id === rowId);
+  if (i < 0) return { ok: false, why: "No such row." };
+  sc.previous = JSON.parse(JSON.stringify(sc.template));
+  rows.splice(i, 1);
+  save();
+  return { ok: true };
+}
+/* Swap `at` with the neighbour in sorted order — one tap moves one place. */
+function moveSchedRow(pid, wd, rowId, dir) {
+  const rows = schedRows(pid, wd).filter(r => r.kind !== "reflection").sort((a, b) => a.at - b.at);
+  const i = rows.findIndex(r => r.id === rowId);
+  const j = i + (dir < 0 ? -1 : 1);
+  if (i < 0 || j < 0 || j >= rows.length) return { ok: false, why: "It is already at the end." };
+  const a = rows[i], b = rows[j];
+  if (a.at === b.at) { if (dir < 0) a.at = Math.max(0, a.at - 1); else b.at = Math.max(0, b.at - 1); }
+  else { const t = a.at; a.at = b.at; b.at = t; }
+  save();
+  return { ok: true };
+}
+function renameSchedRow(pid, wd, rowId, label) {
+  const r = (schedRows(pid, wd) || []).find(x => x.id === rowId);
+  if (!r) return { ok: false, why: "No such row." };
+  const l = String(label || "").trim().slice(0, 120);
+  if (!l) return { ok: false, why: "Give the row a name." };
+  r.label = l; save(); return { ok: true };
+}
+function setSchedRowField(pid, wd, rowId, field, value) {
+  const r = (schedRows(pid, wd) || []).find(x => x.id === rowId);
+  if (!r) return { ok: false, why: "No such row." };
+  if (field === "minutes") { const n = +value; if (value === "" || isNaN(n) || n < 0 || n > 600) delete r.minutes; else r.minutes = n; }
+  else if (field === "note") { const v = String(value || "").trim().slice(0, 120); if (v) r.note = v; else delete r.note; }
+  else if (field === "with") { const v = String(value || "").trim().slice(0, 40); if (v) r.with = v; else delete r.with; }
+  else if (field === "tally") { const v = String(value || "").trim().slice(0, 40); if (v) r.tally = v; else delete r.tally; }
+  else if (field === "at" || field === "until") { const m = minOf(value); if (m == null) return { ok: false, why: "Pick a time." }; r[field] = m; }
+  else return { ok: false, why: "Unknown field." };
+  save(); return { ok: true };
+}
+function setSchedBlock(pid, wd, i, startMin, endMin) {
+  const bl = scheduleOf(pid).template.blocks[String(wd)];
+  if (!bl) return { ok: false, why: "No such day." };
+  if (i > bl.length || i > 5) return { ok: false, why: "Six blocks is the most a day takes." };
+  if (startMin == null || endMin == null) { bl.splice(i, 1); save(); return { ok: true, removed: true }; }
+  if (!(startMin >= 0 && endMin <= 1440 && startMin < endMin)) return { ok: false, why: "The block has to end after it starts." };
+  bl[i] = [startMin, endMin];
+  bl.sort((a, b) => a[0] - b[0]);
+  const rows = schedRows(pid, wd);
+  const have = rows.filter(r => r.kind === "block").length;
+  for (let k = have; k < bl.length; k++) rows.push({ id: uid("r"), kind: "block", label: "", at: bl[k][0], blockIndex: k });
+  save();
+  return { ok: true };
+}
+function copySchedDay(pid, fromWd, toWds) {
+  const sc = scheduleOf(pid);
+  sc.previous = JSON.parse(JSON.stringify(sc.template));
+  for (const w of toWds) {
+    if (!WD_KEYS.includes(String(w)) || String(w) === String(fromWd)) continue;
+    sc.template.byWeekday[String(w)] = JSON.parse(JSON.stringify(sc.template.byWeekday[String(fromWd)]));
+    sc.template.blocks[String(w)] = JSON.parse(JSON.stringify(sc.template.blocks[String(fromWd)]));
+  }
+  save();
+  return { ok: true };
+}
+function restoreSchedPrevious(pid) {
+  const sc = scheduleOf(pid);
+  if (!sc.previous) return { ok: false, why: "There is no earlier list to go back to." };
+  const cur = sc.template;
+  sc.template = sc.previous; sc.previous = cur;
+  normalizeSchedule(sc, S.profiles[pid]);
+  save();
+  return { ok: true };
+}
+function resetSchedDefault(pid) {
+  const sc = scheduleOf(pid);
+  sc.previous = JSON.parse(JSON.stringify(sc.template));
+  sc.template = defaultSchedule(S.profiles[pid]).template;
+  save();
+  return { ok: true };
+}
+/* ---- export / import ---- */
+function exportSchedule(pid) {
+  const p = S.profiles[pid], sc = scheduleOf(pid);
+  return { leanline: "schedule", schemaVersion: S.schemaVersion, exportedAt: new Date().toISOString(),
+    expectMeals: (p.slots || []).filter(s => s.timeByWeekday && s.timeByWeekday.def).length, template: JSON.parse(JSON.stringify(sc.template)) };
+}
+const SAFE_ID = /^[A-Za-z0-9_-]{1,24}$/;
+const BAD_KEY = k => k === "__proto__" || k === "constructor" || k === "prototype";
+/* Whitelist rebuild. Refuses on the first problem; never copies unknown keys. */
+function validateTemplate(t) {
+  const no = why => ({ ok: false, why });
+  if (!t || typeof t !== "object" || Array.isArray(t)) return no("No schedule template in this file.");
+  const clean = { labels: {}, byWeekday: {}, blocks: {}, top3Prompts: [] };
+  const L = t.labels || {};
+  for (const k of ["block", "side", "event", "inBlock"]) { if (L[k] != null && typeof L[k] !== "string") return no("Label " + k + " is not text."); clean.labels[k] = String(L[k] == null ? "" : L[k]).slice(0, 40); }
+  if (!t.byWeekday || typeof t.byWeekday !== "object") return no("No rows by weekday.");
+  for (const k of Object.keys(t.byWeekday)) { if (BAD_KEY(k)) return no("Bad key."); if (!WD_KEYS.includes(k)) return no("Weekday " + k + " is not 0–6."); }
+  for (const w of WD_KEYS) {
+    const rows = t.byWeekday[w];
+    if (rows === undefined) { clean.byWeekday[w] = []; continue; }
+    if (!Array.isArray(rows)) return no("Rows for weekday " + w + " are not a list.");
+    if (rows.length > 40) return no("Weekday " + w + " has more than 40 rows.");
+    const ids = {}, out = [];
+    for (const r of rows) {
+      if (!r || typeof r !== "object") return no("A row is not an object.");
+      for (const k of Object.keys(r)) if (BAD_KEY(k)) return no("Bad key.");
+      if (!SAFE_ID.test(String(r.id))) return no("Row id " + JSON.stringify(r.id) + " is not allowed.");
+      if (ids[r.id]) return no("Row id " + r.id + " appears twice on weekday " + w + ".");
+      ids[r.id] = true;
+      if (!SCHED_KINDS.includes(r.kind)) return no("Row kind " + JSON.stringify(r.kind) + " is unknown.");
+      if (typeof r.label !== "string" || r.label.length > 120) return no("Row " + r.id + " label is missing or longer than 120 characters.");
+      if (r.kind !== "reflection" && !(Number.isInteger(r.at) && r.at >= 0 && r.at <= 1439)) return no("Row " + r.id + " has no order minute.");
+      const o = { id: r.id, kind: r.kind, label: r.label, at: r.kind === "reflection" ? 9999 : r.at };
+      if (r.minutes != null) { if (!(Number.isInteger(r.minutes) && r.minutes >= 0 && r.minutes <= 600)) return no("Row " + r.id + " minutes out of range."); o.minutes = r.minutes; }
+      if (r.until != null) { if (!(Number.isInteger(r.until) && r.until >= 0 && r.until <= 1440)) return no("Row " + r.id + " end time out of range."); o.until = r.until; }
+      if (r.blockIndex != null) { if (!(Number.isInteger(r.blockIndex) && r.blockIndex >= 0 && r.blockIndex <= 5)) return no("Row " + r.id + " block index out of range."); o.blockIndex = r.blockIndex; }
+      for (const k of ["note", "room", "with", "tally"]) if (r[k] != null) { if (typeof r[k] !== "string" || r[k].length > 120) return no("Row " + r.id + " " + k + " is not short text."); o[k] = r[k]; }
+      out.push(o);
+    }
+    clean.byWeekday[w] = out;
+  }
+  const B = t.blocks || {};
+  if (typeof B !== "object" || Array.isArray(B)) return no("Blocks are not by weekday.");
+  for (const k of Object.keys(B)) { if (BAD_KEY(k)) return no("Bad key."); if (!WD_KEYS.includes(k)) return no("Block weekday " + k + " is not 0–6."); }
+  for (const w of WD_KEYS) {
+    const bl = B[w] === undefined ? [] : B[w];
+    if (!Array.isArray(bl) || bl.length > 6) return no("Blocks for weekday " + w + " are not a list of at most 6.");
+    const out = [];
+    for (const b of bl) {
+      if (!Array.isArray(b) || b.length !== 2 || !Number.isInteger(b[0]) || !Number.isInteger(b[1]) || b[0] < 0 || b[1] > 1440 || b[0] >= b[1]) return no("A block on weekday " + w + " does not end after it starts.");
+      out.push([b[0], b[1]]);
+    }
+    clean.blocks[w] = out.sort((a, b) => a[0] - b[0]);
+  }
+  const tp = t.top3Prompts;
+  if (tp !== undefined && (!Array.isArray(tp) || tp.length !== 3 || tp.some(x => typeof x !== "string" || x.length > 40))) return no("Top 3 prompts must be exactly three short labels.");
+  clean.top3Prompts = tp || ["Work", "Home", "Body"];
+  return { ok: true, clean };
+}
+/* An import may ADD meal slots the list expects (by name); it never removes or
+   renames one, and it never touches a log. */
+function addSlotsFromImport(pid, slots) {
+  const p = S.profiles[pid];
+  if (!Array.isArray(slots)) return 0;
+  let n = 0;
+  for (const s of slots.slice(0, 12)) {
+    if (!s || typeof s.name !== "string" || !s.name.trim() || s.name.length > 40) continue;
+    if (p.slots.some(x => x.name.toLowerCase() === s.name.trim().toLowerCase())) continue;
+    const time = /^\d{2}:\d{2}$/.test(String(s.time || "")) ? s.time : null;
+    const kcal = Number.isFinite(+s.targetKcal) ? +s.targetKcal : 0, prot = Number.isFinite(+s.targetProtein) ? +s.targetProtein : 0;
+    p.slots.push({ id: uid("s"), name: s.name.trim(), timeByWeekday: { def: time }, targetKcal: kcal, targetProtein: prot });
+    n++;
+  }
+  return n;
+}
+
 /* ============================================================
    ONBOARDING (LL-615) — first run, and "add a profile"
    Nobody is seeded in the installable build, so this is how a person gets
@@ -4821,6 +6478,9 @@ function isExplosive(name) {
 function reorderSession(pid, session) {
   const p = S.profiles[pid];
   if (!p || !p.isMinor) return session;
+  /* LL-647: no opener on a rest day, and none on a day that only says
+     "completed, details not recorded" — nothing is invented onto it. */
+  if (session.templateRef && (dayKeyOn(pid, session.date) === "rest" || (session.completedUnrecorded && !session.entries.length))) return session;
   let idx = session.entries.findIndex(e => isExplosive(e.exercise));
   if (idx < 0) {
     session.entries.unshift({ exercise: EXPLOSIVE[0], sets: [], minutes: null, explosive: true, locked: true });
@@ -5505,7 +7165,7 @@ document.addEventListener("keydown", e => { if (e.key === "Escape" && sheetState
 
 /* ---------- profile / settings ---------- */
 function sheetImport() {
-  openSheet(sheetHead("Import JSON", "Paste a LEANLINE export, or choose a file. Recipe-only exports merge; full exports replace everything.") +
+  openSheet(sheetHead("Import JSON", "Paste a LEANLINE export, or choose a file. Recipe-only exports merge; a day-list file replaces the list only; full exports replace everything.") +
     '<div class="field"><label for="impFile">File</label><input id="impFile" type="file" accept="application/json,.json" data-act="importFile"></div>' +
     '<div class="field"><label for="impText">Or paste JSON</label><textarea id="impText" rows="7" style="min-height:140px"></textarea></div>' +
     '<button class="btn primary full tall" data-act="importText">Import</button>');
@@ -6029,6 +7689,257 @@ const ACTS = {
     render(); toast("Profile deleted");
   },
 
+  /* ---- program (LL-647) ---- */
+  progSheet() { sheetProgram(); },
+  enrollDo() {
+    const p = profile(), n = el("enStart"), sup = el("enSup");
+    const r = enroll(p.id, tmplKey(PROGRAM_TEMPLATES[0]), n ? n.value : "", { supervised: !!(sup && sup.checked) });
+    if (!r.ok) { alert(r.why); return; }
+    closeSheet(); UI.date = r.enrollment.startDate; render(); toast("Program started. Dates are editable under Program.");
+  },
+  progEnd() {
+    const p = profile();
+    if (!confirm("End the program on " + p.name + "'s profile? Every logged session is kept.")) return;
+    endEnrollment(p.id, "ended"); closeSheet(); render(); toast("Program ended. Sessions kept.");
+  },
+  progStart() {
+    const p = profile();
+    const s = sessionForDay(p.id, UI.date);
+    if (!s) { openSession(p.id, UI.date); render(); return; }
+    openSession(p.id, UI.date);          // adds any weekday blocks after the template work, orders the opener
+    UI.exOpen = null; UI.setEdit = null; render();
+  },
+  rowDate(t) { const r = setRowDate(profile().id, +t.dataset.o, t.value); if (!r.ok) { alert(r.why); render(); return; } render(); },
+  cycleSheet(t) { sheetCycle(+t.dataset.o); },
+  cycleOpen(t) { UI.date = t.dataset.d; closeSheet(); const p = profile(); if (!sessionOn(p.id, UI.date)) { sessionForDay(p.id, UI.date); openSession(p.id, UI.date); } render(); },
+  cycleUnrecorded(t) {
+    const r = markCompletedUnrecorded(profile().id, +t.dataset.o);
+    if (!r.ok) { alert(r.why); return; }
+    closeSheet(); render(); toast("Marked completed. Nothing about it was invented.");
+  },
+  cycleDate(t) { const r = setRowDate(profile().id, +t.dataset.o, t.value); if (!r.ok) { alert(r.why); return; } render(); },
+  shiftSheet(t) { sheetShift(+t.dataset.o); },
+  shiftDo(t) {
+    const r = shiftSchedule(profile().id, +t.dataset.o, isoDate());
+    if (!r.ok) { alert(r.why); return; }
+    closeSheet(); render(); toast(r.moved + " day" + (r.moved === 1 ? "" : "s") + " moved");
+  },
+  shiftKeep(t) { const e = activeEnrollment(profile().id); if (e) { e.keep = e.keep || {}; e.keep["shift:" + t.dataset.o] = isoDate(); save(); } closeSheet(); render(); },
+  reviewSheet() { sheetReview(); },
+  cycleContinue() {
+    const p = profile(), n = el("rvStart");
+    const old = activeEnrollment(p.id);
+    if (!old) return;
+    const start = n && n.value ? n.value : isoDate();
+    endEnrollment(p.id, "renewed");
+    const r = enroll(p.id, old.templateKey, start, { supervised: old.supervised, carry: true });
+    if (!r.ok) { alert(r.why); return; }
+    closeSheet(); UI.date = start; render(); toast("Next cycle starts " + fmtDate(start));
+  },
+  exOpen(t) { UI.exOpen = t.dataset.ex; UI.setEdit = null; render(); },
+  exInfo(t) { sheetExInfo(t.dataset.ex); },
+  exTech(t) { setTechnique(profile().id, UI.date, t.dataset.ex, t.dataset.v); render(); },
+  swapSheet(t) { UI.swap = null; sheetSwap(t.dataset.ex); },
+  swapPick(t) { UI.swap.pick = t.dataset.id; sheetSwap(UI.swapEx); },
+  swapScope(t) { UI.swap.remember = t.dataset.v === "1"; sheetSwap(UI.swapEx); },
+  swapDo(t) {
+    const p = profile(), s = sessionOn(p.id, UI.date), e = s && s.entries.find(x => x.exercise === t.dataset.ex);
+    if (!e) return;
+    const r = setSubstitution(p.id, UI.date, e.dayKey, e.slot, UI.swap.pick, UI.swap.remember);
+    if (!r.ok) { alert(r.why); return; }
+    UI.exOpen = EXERCISES[UI.swap.pick].name; closeSheet(); render(); toast("Swapped. Its own history starts now.");
+  },
+  setEdit(t) {
+    const p = profile(), s = sessionOn(p.id, UI.date), e = s && s.entries.find(x => x.exercise === t.dataset.ex);
+    if (!e) return;
+    const idx = t.dataset.i;
+    if (UI.setEdit && UI.setEdit.ex === e.exercise && String(UI.setEdit.idx) === String(idx)) { UI.setEdit = null; render(); return; }
+    if (/^p/.test(idx)) { const pf = prefillFor(p, e, activeEnrollment(p.id), UI.date); UI.setEdit = { ex: e.exercise, idx, reps: pf.reps, lb: pf.lb, rir: null, warmup: false, discomfort: false, note: "" }; }
+    else { const x = normSet(e.sets[+idx] || {}); UI.setEdit = { ex: e.exercise, idx: +idx, reps: x.reps, lb: x.lb, rir: x.rir, warmup: x.warmup, discomfort: x.discomfort, note: x.note }; }
+    render();
+  },
+  seField(t) { if (!UI.setEdit) return; const f = t.dataset.f; UI.setEdit[f] = f === "note" ? t.value : (t.value === "" ? null : +t.value); },
+  seStep(t) { if (!UI.setEdit) return; const f = t.dataset.f, d = +t.dataset.d; UI.setEdit[f] = Math.max(0, Math.round(((UI.setEdit[f] || 0) + d) * 10) / 10); render(); },
+  seRir(t) { if (!UI.setEdit) return; UI.setEdit.rir = t.dataset.v === "" ? null : +t.dataset.v; render(); },
+  seToggle(t) { if (!UI.setEdit) return; UI.setEdit[t.dataset.f] = !UI.setEdit[t.dataset.f]; render(); },
+  setDone(t) {
+    const p = profile(), s = sessionOn(p.id, UI.date), e = s && s.entries.find(x => x.exercise === t.dataset.ex);
+    if (!e) return;
+    const ed = UI.setEdit && UI.setEdit.ex === e.exercise ? UI.setEdit : null;
+    let reps, lb, extra = {};
+    if (ed) {
+      const rp = el("se_reps"), lbEl = el("se_lb"), nt = el("se_note");
+      reps = rp && rp.value !== "" ? +rp.value : ed.reps; lb = lbEl && lbEl.value !== "" ? +lbEl.value : ed.lb;
+      extra = { rir: ed.rir, warmup: ed.warmup, discomfort: ed.discomfort, note: nt ? nt.value : ed.note };
+    } else { const pf = prefillFor(p, e, activeEnrollment(p.id), UI.date); reps = pf.reps; lb = pf.lb; }
+    if (lb == null || lb === "" || isNaN(lb)) { if (!ed) { ACTS.setEdit(t); return; } alert("Type the weight you used."); return; }
+    const r = addSetFull(p.id, UI.date, e.exercise, Object.assign({ reps, lb, plannedReps: e.target.max, plannedLb: plannedLoad(p.id, e.exId, e.dayKey, e.slot) }, extra));
+    if (!r.ok) { alert(r.why); return; }
+    if ((UI.extraPending || {})[e.exercise]) UI.extraPending[e.exercise]--;
+    UI.setEdit = null;
+    if (!extra.warmup && S.settings.restTimer !== false && S.settings.restAutoStart !== false) {
+      const n = (e.sets || []).map(normSet).filter(x => !x.warmup && x.status === "completed").length;
+      restStart(p.id, e.target.rest, e.exercise + " set " + (n + 1));
+    }
+    render();
+    toast(p.name + ": " + R1(lb) + " lb × " + reps + " logged");
+  },
+  setUndo(t) {
+    const p = profile();
+    removeSet(p.id, UI.date, t.dataset.ex, +t.dataset.i);
+    UI.setEdit = null; render();
+  },
+  setSave(t) {
+    const p = profile(), ed = UI.setEdit;
+    if (!ed) return;
+    const rp = el("se_reps"), lbEl = el("se_lb"), nt = el("se_note");
+    const r = updateSet(p.id, UI.date, t.dataset.ex, +t.dataset.i, { reps: rp && rp.value !== "" ? +rp.value : ed.reps, lb: lbEl && lbEl.value !== "" ? +lbEl.value : ed.lb, rir: ed.rir, warmup: ed.warmup, discomfort: ed.discomfort, note: nt ? nt.value : ed.note });
+    if (!r.ok) { alert(r.why); return; }
+    UI.setEdit = null; render();
+  },
+  setSkip(t) {
+    const p = profile(), s = sessionOn(p.id, UI.date), e = s && s.entries.find(x => x.exercise === t.dataset.ex);
+    if (!e) return;
+    const r = addSetFull(p.id, UI.date, e.exercise, { status: "skipped", reps: 0, lb: 0 });
+    if (!r.ok) { alert(r.why); return; }
+    UI.setEdit = null; render();
+  },
+  setMore(t) { UI.extraPending = UI.extraPending || {}; UI.extraPending[t.dataset.ex] = (UI.extraPending[t.dataset.ex] || 0) + 1; render(); },
+  setWarm(t) {
+    const p = profile(), s = sessionOn(p.id, UI.date), e = s && s.entries.find(x => x.exercise === t.dataset.ex);
+    if (!e) return;
+    const pf = prefillFor(p, e, activeEnrollment(p.id), UI.date);
+    UI.setEdit = { ex: e.exercise, idx: "p0", reps: 5, lb: pf.lb != null ? Math.round(pf.lb * 0.6 / 5) * 5 : null, rir: null, warmup: true, discomfort: false, note: "" };
+    UI.extraPending = UI.extraPending || {}; UI.extraPending[e.exercise] = (UI.extraPending[e.exercise] || 0) + 1;
+    render();
+  },
+  finishSheet() { sheetFinish(); },
+  progAccept(t) {
+    const p = profile(), s = sessionOn(p.id, UI.date), e = s && s.entries.find(x => x.exercise === t.dataset.ex);
+    if (!e) return;
+    const r = acceptSuggestion(p.id, e.exId, e.dayKey, e.slot, +t.dataset.lb);
+    if (!r.ok) { alert(r.why); return; }
+    render(); toast("Next time: " + R1(+t.dataset.lb) + " lb. Nothing logged today changed.");
+  },
+  progKeep(t) {
+    const p = profile(), s = sessionOn(p.id, UI.date), e = s && s.entries.find(x => x.exercise === t.dataset.ex);
+    if (!e) return;
+    keepLoad(p.id, e.exId, e.dayKey, e.slot); render();
+  },
+  progAsk(t) {
+    const p = profile(), s = sessionOn(p.id, UI.date), e = s && s.entries.find(x => x.exercise === t.dataset.ex);
+    const en = activeEnrollment(p.id);
+    if (!e || !en) return;
+    delete en.keep[e.exId + "|" + e.dayKey + "|" + e.slot]; save(); render();
+  },
+  incSheet(t) { sheetIncrement(t.dataset.ex); },
+  incPick(t) { const n = el("incLb"); if (n) n.value = t.dataset.v; },
+  incSave(t) {
+    const p = profile(), s = sessionOn(p.id, UI.date), e = s && s.entries.find(x => x.exercise === t.dataset.ex);
+    if (!e) return;
+    const v = parseFloat(el("incLb").value);
+    const r = setIncrement(p.id, e.exId, v);
+    if (!r.ok) { alert(r.why); return; }
+    const pc = judgeEntry(p.id, { date: UI.date, entry: e, sets: workingSets(e) });
+    if (pc && pc.suggest === "add") acceptSuggestion(p.id, e.exId, e.dayKey, e.slot, pc.lastLoad + v);
+    closeSheet(); render(); toast("Step saved: " + v + " lb");
+  },
+  restStartN(t) { restStart(profile().id, +t.dataset.s, "between exercises"); render(); },
+  restPause() { restPause(profile().id); render(); },
+  restAdd() { restAdd(profile().id, 30); render(); },
+  restSkip() { restSkip(profile().id); render(); },
+  lifterSwitch(t) {
+    if (t.dataset.id === S.activeProfileId) return;
+    S.activeProfileId = t.dataset.id; save();
+    UI.exOpen = null; UI.setEdit = null;
+    const p = profile();
+    if (activeEnrollment(p.id) && rowOf(p.id, UI.date) && !sessionOn(p.id, UI.date) && dayKeyOn(p.id, UI.date) !== "rest") { sessionForDay(p.id, UI.date); openSession(p.id, UI.date); }
+    render(); toast("Logging for " + p.name);
+  },
+  ckEdit() { UI.ckEdit = true; const c = checkinOf(profile().id, weekIdOf(isoDate())); UI.ck = c ? { fatigue: c.fatigue, joints: c.joints } : null; render(); },
+  ckSet(t) { UI.ck = UI.ck || {}; UI.ck[t.dataset.k] = t.dataset.v; render(); },
+  ckSave() { if (!UI.ck || !UI.ck.fatigue || !UI.ck.joints) return; saveCheckin(profile().id, weekIdOf(isoDate()), UI.ck.fatigue, UI.ck.joints); UI.ckEdit = false; UI.ck = null; render(); toast("Check-in saved"); },
+  restPref(t) { S.settings[t.dataset.k] = t.dataset.v === "1"; save(); render(); },
+  restTest() { restAlert(true); toast("That is the alert"); },
+  todayOpens(t) { profile().todayOpens = t.dataset.v; UI.todayView = t.dataset.v; save(); render(); },
+  /* ---- day schedule (LL-648 / 649) ---- */
+  todayView(t) { UI.todayView = t.dataset.v; render(); },
+  dayTick(t) {
+    const p = profile(), id = t.dataset.row;
+    const rows = scheduleRows(p.id, UI.date), r = rows.find(x => x.id === id);
+    if (!r) return;
+    if (r.kind === "workout" && !r.done && !r.optional && sessionOn(p.id, UI.date) && !sessionOn(p.id, UI.date).finishedAt) { UI.tab = "train"; render(); return; }
+    const res = setTick(p.id, UI.date, id, !r.done);
+    if (!res.ok) { alert(res.why); return; }
+    render();
+  },
+  dayOpenTrain() { UI.tab = "train"; render(); },
+  top3Tick(t) { toggleTop3(profile().id, UI.date, +t.dataset.i); render(); },
+  top3Text(t) { setTop3(profile().id, UI.date, +t.dataset.i, t.value); },
+  reflSheet() { sheetReflection(UI.date); },
+  reflSave(t) {
+    const p = profile(), d = t.dataset.d;
+    const v = id => { const n = el(id); return n ? n.value : ""; };
+    const blocks = blocksOn(p.id, d);
+    const r = saveReflection(p.id, d, { done: v("rf_done"), blocked: v("rf_blocked"), tomorrow: v("rf_tomorrow"),
+      money: { blocks: blocks.map((b, i) => v("rf_b" + i)), side: { hrs: v("rf_sh"), usd: v("rf_su") }, event: v("rf_ev") }, weight: p.isMinor ? null : v("rf_wt") });
+    if (r.weight && !r.weight.ok) { alert(r.weight.why); return; }
+    UI.distress = !!r.distress;
+    closeSheet(); render();
+    if (!r.distress) toast("Saved");
+  },
+  tallySheet() { sheetTally(); },
+  dayEditSheet(t) { sheetDayEdit(t.dataset.w); },
+  dayEditWd(t) { sheetDayEdit(t.value); },
+  blockTime(t) {
+    const p = profile(), wd = UI.editWd, bl = scheduleOf(p.id).template.blocks[wd], i = +t.dataset.i;
+    const cur = bl[i] ? bl[i].slice() : [8 * 60, 11 * 60];
+    const m = minOf(t.value); if (m == null) return;
+    cur[+t.dataset.e] = m;
+    const r = setSchedBlock(p.id, wd, i, cur[0], cur[1]);
+    if (!r.ok) { alert(r.why); sheetDayEdit(wd); return; }
+    sheetDayEdit(wd);
+  },
+  blockAdd() { const p = profile(), wd = UI.editWd, bl = scheduleOf(p.id).template.blocks[wd]; const last = bl.length ? bl[bl.length - 1][1] + 60 : 8 * 60; const r = setSchedBlock(p.id, wd, bl.length, Math.min(last, 20 * 60), Math.min(last + 180, 23 * 60 + 59)); if (!r.ok) alert(r.why); sheetDayEdit(wd); },
+  blockDel(t) {
+    const p = profile(), wd = UI.editWd, i = +t.dataset.i;
+    setSchedBlock(p.id, wd, i, null, null);
+    const rows = schedRows(p.id, wd);
+    const blockRows = rows.filter(r => r.kind === "block").sort((a, b) => (a.blockIndex || 0) - (b.blockIndex || 0));
+    const gone = blockRows[blockRows.length - 1];
+    if (gone) rows.splice(rows.indexOf(gone), 1);
+    blockRows.filter(r => r !== gone).forEach((r, k) => { r.blockIndex = k; });
+    save(); sheetDayEdit(wd);
+  },
+  rowMove(t) { const r = moveSchedRow(profile().id, UI.editWd, t.dataset.id, +t.dataset.d); if (!r.ok) toast(r.why); sheetDayEdit(UI.editWd); },
+  rowDel(t) { const r = removeSchedRow(profile().id, UI.editWd, t.dataset.id); if (!r.ok) alert(r.why); sheetDayEdit(UI.editWd); },
+  rowSheet(t) { sheetDayRow(UI.editWd, t.dataset.id); },
+  rowField(t) {
+    const p = profile(), f = t.dataset.f;
+    const r = f === "label" ? renameSchedRow(p.id, UI.editWd, t.dataset.id, t.value) : setSchedRowField(p.id, UI.editWd, t.dataset.id, f, t.value);
+    if (!r.ok) toast(r.why);
+  },
+  rowAdd(t) {
+    const n = el("newRow"), label = n ? n.value : "";
+    const r = addSchedRow(profile().id, UI.editWd, { kind: t.dataset.k, label: label || (t.dataset.k === "workout" ? "Workout" : "") });
+    if (!r.ok) { alert(r.why); return; }
+    sheetDayEdit(UI.editWd);
+  },
+  copySheet() { UI.copyTo = {}; sheetCopyDay(UI.editWd); },
+  copyPick(t) { UI.copyTo[t.dataset.w] = !UI.copyTo[t.dataset.w]; sheetCopyDay(UI.editWd); },
+  copyDo(t) {
+    const to = Object.keys(UI.copyTo || {}).filter(k => UI.copyTo[k]);
+    if (!to.length) { alert("Pick at least one day."); return; }
+    copySchedDay(profile().id, t.dataset.w, to);
+    closeSheet(); render(); toast("Copied to " + to.map(w => DAYS[+w]).join(", "));
+  },
+  schedRestore() { const r = restoreSchedPrevious(profile().id); if (!r.ok) { alert(r.why); return; } sheetDayEdit(UI.editWd); toast("Previous list restored"); },
+  schedReset() { if (!confirm("Replace the day list with the starter list? Restore previous list undoes it.")) return; resetSchedDefault(profile().id); render(); toast("Starter list in place"); },
+  schedExport() {
+    const p = profile();
+    downloadFile("leanline-schedule-" + (p.name || "me").toLowerCase().replace(/[^a-z0-9]+/g, "-") + "-" + isoDate() + ".json", JSON.stringify(exportSchedule(p.id), null, 2), "application/json");
+    toast("Day list exported");
+  },
   weekShift(t) { UI.weekStart = shiftDate(UI.weekStart || weekIdOf(UI.date), +t.dataset.d); render(); },
   weekToday() { UI.weekStart = weekIdOf(isoDate()); render(); },
   planPid(t) { UI.planPid = t.dataset.id; render(); },
@@ -6503,6 +8414,24 @@ const ACTS = {
         (dropped ? " — " + dropped + " skipped (missing recipe or food)" : ""));
       return;
     }
+    /* LL-649: a day-list file replaces the active profile's template only. */
+    if (data.leanline === "schedule") {
+      const p = profile();
+      const v = validateTemplate(data.template);
+      if (!v.ok) { alert(v.why + " Nothing has been changed."); return; }
+      const sc = scheduleOf(p.id);
+      const timed = (p.slots || []).filter(x => x.timeByWeekday && x.timeByWeekday.def).length;
+      const addable = Array.isArray(data.slots) ? data.slots.filter(x => x && typeof x.name === "string" && !p.slots.some(y => y.name.toLowerCase() === x.name.trim().toLowerCase())).length : 0;
+      if (!confirm("Replace " + p.name + "'s day list with this file? Ticks, reflections, meals and logs are kept." + (addable ? " It also adds " + addable + " meal time" + (addable === 1 ? "" : "s") + " this profile does not have yet (none are removed)." : ""))) return;
+      sc.previous = JSON.parse(JSON.stringify(sc.template));
+      sc.template = v.clean;
+      const added = addable ? addSlotsFromImport(p.id, data.slots) : 0;
+      save(); closeSheet(); UI.todayView = "day"; UI.tab = "today"; render();
+      const now = (p.slots || []).filter(x => x.timeByWeekday && x.timeByWeekday.def).length;
+      toast("Day list imported" + (added ? ", " + added + " meal time" + (added === 1 ? "" : "s") + " added" : "") +
+        (data.expectMeals && data.expectMeals !== now ? ". Written for " + data.expectMeals + " meals; this profile has " + now + "." : ""));
+      return;
+    }
     if (data.leanline === "recipes" || (data.recipes && !data.profiles)) {
       if (!confirm("Merge these recipes and foods into your data? Nothing existing is deleted.")) return;
       Object.assign(S.foods, data.foods || {});
@@ -6549,6 +8478,72 @@ document.addEventListener("pointerdown", e => {
 });
 ["pointerup", "pointercancel", "pointerleave"].forEach(ev =>
   document.addEventListener(ev, () => { clearTimeout(lpTimer); }));
+
+/* ---------- rest-timer runtime (LL-647) ----------
+   The timer is a pure function of timestamps (restRemaining). This tick only
+   repaints the dock's digits once a second and fires the alert once at zero.
+   It never completes a set and never writes state except the alerted flag. */
+function restAlert(force) {
+  try {
+    if (force || S.settings.restSound !== false) {
+      const AC = (typeof window !== "undefined") && (window.AudioContext || window.webkitAudioContext);
+      if (AC) {
+        const ctx = new AC();
+        [0, 0.22].forEach(t0 => {
+          const o = ctx.createOscillator(), g = ctx.createGain();
+          o.type = "sine"; o.frequency.value = 880;
+          g.gain.setValueAtTime(0.0001, ctx.currentTime + t0);
+          g.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + t0 + 0.02);
+          g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + t0 + 0.18);
+          o.connect(g); g.connect(ctx.destination);
+          o.start(ctx.currentTime + t0); o.stop(ctx.currentTime + t0 + 0.2);
+        });
+      }
+    }
+    if ((force || S.settings.restVibrate !== false) && typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate([200, 100, 200]);
+  } catch (e) { /* no audio here; the digits still say Rest over */ }
+}
+function dockTick() {
+  if (!S || UI.tab !== "train") return;
+  const now = Date.now();
+  let repaint = false;
+  for (const pid of Object.keys(S.profiles || {})) {
+    const rt = (S.training[pid] || {}).rest;
+    if (!rt) continue;
+    const rem = restRemaining(rt, now);
+    const n = document.querySelector('[data-dock-rest="' + pid + '"]');
+    if (n) n.textContent = rem > 0 ? fmtSec(rem) : "0:00";
+    if (pid === S.activeProfileId) {
+      const d = el("dockTime");
+      if (d) d.textContent = rem > 0 ? fmtSec(rem) : "Rest over";
+    }
+    if (rem <= 0 && !rt.alerted && !rt.pausedAt) {
+      rt.alerted = true; save();
+      if (pid === S.activeProfileId) { restAlert(false); const live = el("liveRest"); if (live) live.textContent = "Rest over for " + (S.profiles[pid] || {}).name; }
+      repaint = true;
+    }
+  }
+  if (repaint) render();
+}
+if (typeof setInterval === "function") setInterval(dockTick, 1000);
+if (typeof document !== "undefined" && document.addEventListener) document.addEventListener("visibilitychange", () => { if (!document.hidden) dockTick(); });
+/* Re-rendering replaces every node; put focus back on the control that had it. */
+let focusKey = null;
+function rememberFocus() {
+  const a = document.activeElement;
+  focusKey = a && a.getAttribute ? (a.getAttribute("data-act") ? [a.getAttribute("data-act"), a.getAttribute("data-ex") || "", a.getAttribute("data-i") || a.getAttribute("data-row") || a.getAttribute("data-id") || ""].join("|") : (a.id || null)) : null;
+}
+function restoreFocus() {
+  if (!focusKey) return;
+  let n = null;
+  if (focusKey.includes("|")) {
+    const [act, ex, i] = focusKey.split("|");
+    const all = document.querySelectorAll('[data-act="' + act + '"]');
+    for (const c of all) { if ((c.getAttribute("data-ex") || "") === ex && (c.getAttribute("data-i") || c.getAttribute("data-row") || c.getAttribute("data-id") || "") === i) { n = c; break; } }
+  } else n = el(focusKey);
+  if (n && n.focus) n.focus();
+  focusKey = null;
+}
 
 boot();
 </script>
