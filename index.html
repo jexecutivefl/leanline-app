@@ -2977,6 +2977,14 @@ function dayTotals(pid, dateStr) {
    5. APP STATE + BOOT
    ============================================================ */
 let S = null;
+/* LL-651. Which copy is this? The canonical file is a development copy and says
+   so. pwa/build.mjs rewrites this ONE line with the commit count, the commit
+   date and the build hash, so a phone can tell an old build from a new one
+   without guessing. Nothing here is fetched; it is a constant. */
+const BUILD = {"n":94,"date":"2026-11-11","id":"7cf68d92ae46"};
+function buildLabel() {
+  return BUILD.n ? "Version " + BUILD.n + " · " + BUILD.date + " · build " + BUILD.id : "Development copy — not an installed build";
+}
 const UI = {
   tab: "today", foodTab: "log", date: isoDate(), search: "", estimate: false, animated: false,
   weekStart: null, planPid: null, planScrollL: 0, planScrollT: 0, cellQ: "", undo: null,
@@ -2986,7 +2994,9 @@ const UI = {
      so it cannot follow anyone across days and become a nag. */
   writes: 0, exportOffer: false, exportDone: false,
   /* LL-647/648 screen state — never saved */
-  todayView: null, exOpen: null, setEdit: null, extraPending: {}, ck: null, ckEdit: false, swap: null, swapEx: null, editWd: "1", copyTo: {}
+  todayView: null, exOpen: null, setEdit: null, extraPending: {}, ck: null, ckEdit: false, swap: null, swapEx: null, editWd: "1", copyTo: {},
+  /* LL-651 update state — session only */
+  updateReady: false, updateMsg: null
 };
 const EXPORT_AFTER = 15;   // entries in one sitting before the offer appears, once
 function noteWrite(n) {
@@ -3055,7 +3065,7 @@ function render() {
     return;
   }
   document.body.classList.remove("onbmode");
-  app.innerHTML = viewStorageWarning() + viewExportOffer() + (
+  app.innerHTML = viewStorageWarning() + viewUpdateReady() + viewExportOffer() + (
     UI.tab === "today" ? viewToday(p) :
     UI.tab === "food" ? viewFood(p) :
     UI.tab === "plan" ? viewPlan() :
@@ -3399,9 +3409,18 @@ function viewOnboarding() {
 }
 
 /* ---------- Settings (spec §4.7) ---------- */
+/* LL-651. Shown only after a newer build has finished installing underneath
+   the open page. Reload is a tap, never automatic: an automatic reload would
+   drop whatever is half-typed. */
+function viewUpdateReady() {
+  if (!UI.updateReady) return "";
+  return '<div class="card dense" role="status" data-key="updateReady"><b>A newer version of LEANLINE is ready.</b> ' +
+    'Nothing you entered is lost by reloading. <button class="btn sm" data-act="reloadApp">Reload now</button></div>';
+}
 function viewSettings() {
   const p = profile();
-  let h = '<button class="btn sm" data-act="tab" data-tab="today">‹ Back</button>';
+  let h = '<div class="two" style="align-items:center"><button class="btn sm" data-act="tab" data-tab="today">‹ Back</button>' +
+    '<span class="sub num" style="text-align:right">' + (BUILD.n ? "v" + BUILD.n : "dev") + '</span></div>';
 
   /* profiles */
   h += '<div class="card" style="margin-top:.6rem"><div class="eyebrow">Profiles</div><div style="margin-top:.5rem">';
@@ -3501,6 +3520,12 @@ function viewSettings() {
     '<div class="two"><button class="btn" data-act="export" data-what="all">Export all data</button>' +
     '<button class="btn" data-act="export" data-what="recipes">Export recipes</button></div>' +
     '<div style="height:.5rem"></div><button class="btn full" data-act="importSheet">Import from JSON</button></div>';
+  /* LL-651: which build is this, and is there a newer one */
+  h += '<div class="card"><div class="eyebrow">About</div>' +
+    '<p class="num" style="font-size:1rem;margin:.4rem 0"><b>LEANLINE</b> · ' + esc(buildLabel()) + '</p>' +
+    '<p class="muted" style="font-size:.8125rem;margin:0 0 .5rem">An installed copy picks up the newest build each time it is opened while online. The version number goes up with every release.</p>' +
+    '<button class="btn" data-act="updateCheck">Check for an update</button>' +
+    (UI.updateMsg ? '<p class="dense" role="status" style="margin:.5rem 0 0">' + esc(UI.updateMsg) + '</p>' : '') + '</div>';
   return h;
 }
 /* LL-624. The picker existed but stopped at 1.3 and lived four cards down a
@@ -7616,6 +7641,18 @@ function planRowOf(it, entryId) {
 
 const ACTS = {
   tab(t) { UI.tab = t.dataset.tab; UI.search = ""; closeSheet(); render(); },
+  /* LL-651. The hook is provided by the installable build's registration
+     script (pwa/build.mjs); the canonical file has none and says so. */
+  updateCheck() {
+    const sw = (typeof window !== "undefined" && window.LL_SW) ? window.LL_SW : null;
+    if (!sw || typeof sw.check !== "function") { UI.updateMsg = "This copy is not installed from the web address, so there is nothing to check."; render(); return; }
+    UI.updateMsg = "Checking…"; render();
+    sw.check().then(msg => { UI.updateMsg = msg; render(); });
+  },
+  reloadApp() {
+    if (typeof flush === "function") flush();
+    if (typeof location !== "undefined" && location.reload) location.reload();
+  },
   tabFood() { UI.tab = "food"; UI.foodTab = "log"; render(); },
   foodTab(t) { UI.foodTab = t.dataset.ft; UI.search = ""; render(); },
   profiles() { UI.tab = "settings"; closeSheet(); render(); },
@@ -8570,16 +8607,41 @@ function restoreFocus() {
   focusKey = null;
 }
 
+/* LL-651. The installable build dispatches this once a newer service worker
+   has taken over underneath the open page. */
+if (typeof window !== "undefined" && window.addEventListener)
+  window.addEventListener("leanline:update", () => { UI.updateReady = true; UI.updateMsg = "A newer version is ready — reload to use it."; render(); });
+
 boot();
 </script>
 
 <script>
 /* Register the cache so the app opens with no network at all after the first
-   visit. Same-origin, relative path, no third party. */
+   visit. Same-origin, relative path, no third party.
+   LL-651: the app's Settings "Check for an update" button calls LL_SW.check();
+   when a NEWER worker takes over underneath an open page we tell the app, which
+   shows a reload banner (never reloads by itself). */
+window.LL_SW = { reg: null, check: function () { return Promise.resolve("No installed copy to check — open the web address once while online."); } };
 if ("serviceWorker" in navigator) {
+  var hadController = !!navigator.serviceWorker.controller, told = false;
+  function tellApp() { if (told || !hadController) return; told = true; window.dispatchEvent(new Event("leanline:update")); }
+  navigator.serviceWorker.addEventListener("controllerchange", tellApp);
   window.addEventListener("load", function () {
-    navigator.serviceWorker.register("sw.js").catch(function () { /* stays usable without it */ });
+    navigator.serviceWorker.register("sw.js").then(function (reg) {
+      window.LL_SW.reg = reg;
+      reg.addEventListener("updatefound", function () {
+        var w = reg.installing; if (!w) return;
+        w.addEventListener("statechange", function () { if (w.state === "activated") tellApp(); });
+      });
+    }).catch(function () { /* stays usable without it */ });
   });
+  window.LL_SW.check = function () {
+    var reg = window.LL_SW.reg;
+    if (!reg) return Promise.resolve("No installed copy to check — open the web address once while online.");
+    return reg.update().then(function () {
+      return (reg.installing || reg.waiting) ? "A newer version is downloading. It will be ready in a moment." : "You have the newest version.";
+    }).catch(function () { return "Could not reach the server. Try again when you are online."; });
+  };
 }
 </script>
 </body>
