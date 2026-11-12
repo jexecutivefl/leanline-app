@@ -308,6 +308,15 @@ body.onbmode{padding-bottom:1rem;}
 .dock>*{max-width:720px;margin-left:auto;margin-right:auto;}
 body.docked{padding-bottom:calc(72px + 150px + env(safe-area-inset-bottom));}
 body.docked .toast{bottom:calc(80px + 150px + env(safe-area-inset-bottom));}
+/* LL-655. While a field has the keyboard, nothing is pinned over the form: on a
+   phone the fixed nav and dock ride up with the keyboard and land on top of the
+   set editor. They come back the moment the keyboard goes. */
+body.typing nav,body.typing .dock{display:none;}
+body.typing,body.typing.docked{padding-bottom:1rem;}
+.dock .restlabel{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:.4rem;}
+.dock .timer{font-size:2rem;white-space:nowrap;}
+.dock .timer.over{font-size:1.25rem;}
+#setEditor{scroll-margin-top:calc(10rem + env(safe-area-inset-top));}
 .perish{font-size:.8125rem;color:var(--muted);margin:.1rem 0 .3rem 2.2rem;}
 .perish b{color:var(--warn);}
 .planhint{font-size:.8125rem;color:var(--muted);margin:.4rem 0 0;}
@@ -2981,7 +2990,7 @@ let S = null;
    so. pwa/build.mjs rewrites this ONE line with the commit count, the commit
    date and the build hash, so a phone can tell an old build from a new one
    without guessing. Nothing here is fetched; it is a constant. */
-const BUILD = {"n":104,"date":"2026-11-12","id":"ce3acb8f6ac4"};
+const BUILD = {"n":106,"date":"2026-11-12","id":"db7d937de95e"};
 function buildLabel() {
   return BUILD.n ? "Version " + BUILD.n + " · " + BUILD.date + " · build " + BUILD.id : "Development copy — not an installed build";
 }
@@ -3963,8 +3972,8 @@ function viewSetRow(p, e, x, idx, pending, pf, setNo) {
 }
 function viewSetEditor(p, e, ed, pending) {
   const ex = EXERCISES[e.exId];
-  let h = '<div class="card" style="margin:.4rem 0 .6rem;background:var(--surface-2)">';
-  h += '<div class="two"><div class="field"><label for="se_reps">Reps' + (e.target.perSide ? ' (per side)' : '') + '</label><input id="se_reps" type="number" inputmode="numeric" min="0" step="1" value="' + (ed.reps == null ? "" : ed.reps) + '" data-act="seField" data-f="reps"></div>' +
+  let h = '<div class="card" id="setEditor" style="margin:.4rem 0 .6rem;background:var(--surface-2)">';
+  h += '<div class="two" style="align-items:end"><div class="field"><label for="se_reps">Reps' + (e.target.perSide ? ' (per side)' : '') + '</label><input id="se_reps" type="number" inputmode="numeric" min="0" step="1" value="' + (ed.reps == null ? "" : ed.reps) + '" data-act="seField" data-f="reps"></div>' +
     '<div class="field"><label for="se_lb">Weight lb · ' + esc(loadLabel(ex)) + '</label><input id="se_lb" type="number" inputmode="decimal" min="0" step="2.5" value="' + (ed.lb == null ? "" : ed.lb) + '" data-act="seField" data-f="lb"></div></div>';
   h += '<div class="wrap" style="margin-top:.4rem">' +
     '<button class="chipbtn" data-act="seStep" data-f="reps" data-d="-1" aria-label="Reps minus one">−1 rep</button>' +
@@ -4032,9 +4041,12 @@ function viewDock(p) {
   const rt = trainingOf(p.id).rest;
   if (rt) {
     const rem = restRemaining(rt, now);
-    h += '<div class="row" style="margin-top:.4rem"><span class="grow"><span class="eyebrow">Rest · ' + esc(p.name) + (rt.label ? ' · ' + esc(rt.label) : '') + '</span><br>' +
-      '<span class="timer num" id="dockTime" role="timer" aria-live="off">' + (rem > 0 ? fmtSec(rem) : 'Rest over') + '</span></span>' +
-      '<button class="btn sm" data-act="restPause">' + (rt.pausedAt ? 'Resume' : 'Pause') + '</button>' +
+    /* LL-655: the label gets ONE line of its own; the digits and the three
+       buttons share a row. The old side-by-side label wrapped to four lines on
+       a phone and the dock ate a third of the screen. */
+    h += '<span class="eyebrow restlabel">Rest · ' + esc(p.name) + (rt.label ? ' · ' + esc(rt.label) : '') + '</span>' +
+      '<div class="row" style="margin-top:.15rem;gap:.4rem"><span class="timer num grow' + (rem > 0 ? '' : ' over') + '" id="dockTime" role="timer" aria-live="off">' + (rem > 0 ? fmtSec(rem) : 'Rest over') + '</span>' +
+      (rem > 0 ? '<button class="btn sm" data-act="restPause">' + (rt.pausedAt ? 'Resume' : 'Pause') + '</button>' : '') +
       '<button class="btn sm" data-act="restAdd" aria-label="Add thirty seconds">+30 s</button>' +
       '<button class="btn sm" data-act="restSkip">' + (rem > 0 ? 'Skip' : 'Clear') + '</button></div>';
   }
@@ -4236,7 +4248,7 @@ function viewDay(p) {
     if (r.kind === "meal") {
       const entries = logsFor(p.id, d).filter(e => e.slotId === r.slotId);
       h += '<div class="slotrow"><div class="slotwrap"><button class="' + cls + '" data-act="slotOpen" data-slot="' + r.slotId + '" aria-label="' + esc(r.label) + (r.done ? ', logged' : ', not logged') + '. Adjust or review.">' +
-        '<span class="tick" aria-hidden="true">' + (r.done ? '✓' : '') + '</span><span class="st' + (isNow ? ' next' : '') + '">' + (isNow ? 'NEXT' : '') + '</span>' +
+        '<span class="tick" aria-hidden="true">' + (r.done ? '✓' : '') + '</span>' + (isNow ? '<span class="st next">NEXT</span>' : '') +
         '<span class="sn grow">' + esc(r.label) + (r.sub ? '<br><span class="muted" style="font-size:.8125rem">' + esc(r.sub) + '</span>' : '') + '</span></button>' +
         (r.done ? '' : '<button class="logbtn" data-act="logSlot" data-slot="' + r.slotId + '" aria-label="Log ' + esc(r.label) + ' at planned macros"><span aria-hidden="true">＋</span><span>Log</span></button>') + '</div></div>';
       continue;
@@ -4244,7 +4256,7 @@ function viewDay(p) {
     const tickable = r.kind !== "reflection";
     const act = r.kind === "reflection" ? 'reflSheet' : 'dayTick';
     h += '<div class="slotrow"><div class="slotwrap"><button class="' + cls + '" data-act="' + act + '" data-row="' + esc(r.id) + '" aria-pressed="' + (tickable ? r.done : undefined) + '" aria-label="' + esc(r.label) + (r.optional ? ', optional' : '') + (r.done ? ', done' : ', not done') + (tickable ? '. Tap to ' + (r.done ? 'untick' : 'tick') + '.' : '. Opens the reflection.') + '">' +
-      '<span class="tick" aria-hidden="true">' + (r.done ? '✓' : (r.optional ? '·' : '')) + '</span><span class="st' + (isNow ? ' next' : '') + '">' + (isNow ? 'NEXT' : '') + '</span>' +
+      '<span class="tick" aria-hidden="true">' + (r.done ? '✓' : (r.optional ? '·' : '')) + '</span>' + (isNow ? '<span class="st next">NEXT</span>' : '') +
       '<span class="sn grow">' + esc(r.label) + (r.sub ? '<br><span class="muted num" style="font-size:.8125rem">' + esc(r.sub) + '</span>' : '') + '</span></button>' +
       (r.kind === "workout" && !r.optional && !r.done ? '<button class="logbtn" data-act="dayOpenTrain" aria-label="Open the workout"><span aria-hidden="true">▲</span><span>Open</span></button>' : '') +
       '</div></div>';
@@ -8061,7 +8073,7 @@ const ACTS = {
     if (UI.setEdit && UI.setEdit.ex === e.exercise && String(UI.setEdit.idx) === String(idx)) { UI.setEdit = null; render(); return; }
     if (/^p/.test(idx)) { const pf = prefillFor(p, e, activeEnrollment(p.id), UI.date); UI.setEdit = { ex: e.exercise, idx, reps: pf.reps, lb: pf.lb, rir: null, warmup: false, discomfort: false, note: "" }; }
     else { const x = normSet(e.sets[+idx] || {}); UI.setEdit = { ex: e.exercise, idx: +idx, reps: x.reps, lb: x.lb, rir: x.rir, warmup: x.warmup, discomfort: x.discomfort, note: x.note }; }
-    render();
+    render(); showSetEditor();
   },
   seField(t) { if (!UI.setEdit) return; const f = t.dataset.f; UI.setEdit[f] = f === "note" ? t.value : (t.value === "" ? null : +t.value); },
   seStep(t) { if (!UI.setEdit) return; const f = t.dataset.f, d = +t.dataset.d; UI.setEdit[f] = Math.max(0, Math.round(((UI.setEdit[f] || 0) + d) * 10) / 10); render(); },
@@ -8116,7 +8128,7 @@ const ACTS = {
     const pf = prefillFor(p, e, activeEnrollment(p.id), UI.date);
     UI.setEdit = { ex: e.exercise, idx: "p0", reps: 5, lb: pf.lb != null ? Math.round(pf.lb * 0.6 / 5) * 5 : null, rir: null, warmup: true, discomfort: false, note: "" };
     UI.extraPending = UI.extraPending || {}; UI.extraPending[e.exercise] = (UI.extraPending[e.exercise] || 0) + 1;
-    render();
+    render(); showSetEditor();
   },
   finishSheet() { sheetFinish(); },
   progAccept(t) {
@@ -8859,6 +8871,35 @@ let focusKey = null;
 function rememberFocus() {
   const a = document.activeElement;
   focusKey = a && a.getAttribute ? (a.getAttribute("data-act") ? [a.getAttribute("data-act"), a.getAttribute("data-ex") || "", a.getAttribute("data-i") || a.getAttribute("data-row") || a.getAttribute("data-id") || ""].join("|") : (a.id || null)) : null;
+  /* LL-655: a field with its own id goes back to ITSELF. Keyed by data-act
+     alone, a repaint mid-typing (rest ending) moved the cursor from Weight to Reps. */
+  if (a && a.id && isTypingField(a)) focusKey = a.id;
+}
+/* ---- typing mode (LL-655) ---- */
+function isTypingField(t) {
+  if (!t || !t.tagName) return false;
+  if (t.tagName === "TEXTAREA") return true;
+  if (t.tagName !== "INPUT") return false;
+  return !/^(checkbox|radio|range|file|button|submit|color)$/.test(String((t.getAttribute && t.getAttribute("type")) || "text").toLowerCase());
+}
+let restoringFocus = false;
+function typingSync() {
+  if (typeof document === "undefined" || !document.body || !document.body.classList) return;
+  if (isTypingField(document.activeElement)) document.body.classList.add("typing"); else document.body.classList.remove("typing");
+}
+/* Opening the set editor brings it under the header, set line still visible. */
+function showSetEditor() {
+  const n = el("setEditor");
+  if (n && n.scrollIntoView) n.scrollIntoView({ block: "start" });
+}
+if (typeof document !== "undefined" && document.addEventListener) {
+  document.addEventListener("focusin", e => {
+    typingSync();
+    /* a tap into a number replaces it — nobody wants to backspace 135 first */
+    const t = e.target;
+    if (!restoringFocus && t && t.tagName === "INPUT" && t.type === "number" && t.select) { try { t.select(); } catch (err) { /* not selectable here */ } }
+  });
+  document.addEventListener("focusout", () => setTimeout(typingSync, 80));
 }
 function restoreFocus() {
   if (!focusKey) return;
@@ -8868,7 +8909,7 @@ function restoreFocus() {
     const all = document.querySelectorAll('[data-act="' + act + '"]');
     for (const c of all) { if ((c.getAttribute("data-ex") || "") === ex && (c.getAttribute("data-i") || c.getAttribute("data-row") || c.getAttribute("data-id") || "") === i) { n = c; break; } }
   } else n = el(focusKey);
-  if (n && n.focus) n.focus();
+  if (n && n.focus) { restoringFocus = true; try { n.focus(); } finally { restoringFocus = false; } }
   focusKey = null;
 }
 
