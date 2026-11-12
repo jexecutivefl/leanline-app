@@ -1927,11 +1927,25 @@ function houseCount() { return Object.keys(S.pantry).filter(id => pantryGrams(id
 /* 0..1: how much of this candidate is already in the house. A food is in or
    out; a recipe is the share of its raw weight that is. */
 function houseCoverage(cand) {
-  if (cand.kind === "food") return pantryGrams(rawFoodId(cand.id)) > 0 ? 1 : 0;
+  /* LL-660: by QUANTITY. Half a pound of chicken is not "has chicken" for a
+     recipe that takes three. A recipe is the share of ONE batch's raw weight
+     the house can actually supply; a food is how much of one planned portion
+     is there. Cooked forms are converted to the raw grams they are bought as. */
+  const haveFor = (fid, g) => {
+    const f = S.foods[fid];
+    if (!f || !(g > 0)) return 0;
+    const bt = buyTarget(f);
+    const need = bt ? g * bt.factor : g;
+    return Math.min(1, pantryGrams(bt ? bt.food.id : fid) / need);
+  };
+  if (cand.kind === "food") {
+    const cap = genPortionCap(cand);
+    return haveFor(cand.id, cap.grams > 0 ? Math.min(cap.grams, 150) : 150);
+  }
   const r = S.recipes[cand.id];
   if (!r || !(r.ingredients || []).length) return 0;
   let all = 0, have = 0;
-  for (const ing of r.ingredients) { const g = ing.rawGrams || 0; all += g; if (pantryGrams(rawFoodId(ing.foodId)) > 0) have += g; }
+  for (const ing of r.ingredients) { const g = ing.rawGrams || 0; all += g; have += g * haveFor(ing.foodId, g); }
   return all > 0 ? have / all : 0;
 }
 function generateWeek(p, weekId, opts) {
@@ -1947,6 +1961,7 @@ function generateWeek(p, weekId, opts) {
      eats, the same principle genPool states for template foods. */
   /* LL-659: a batch cook is a FEW mains repeated, not a different dish every day */
   if (opts.onlyRecipes) pool.recipes = pool.recipes.filter(r => opts.onlyRecipes[r.id]);
+  const batch = !!opts.onlyRecipes;
   const mirrorP = opts.mirrorFrom ? S.profiles[opts.mirrorFrom] : null;
   if (mirrorP) {
     const haveF = {};
@@ -2028,7 +2043,12 @@ function generateWeek(p, weekId, opts) {
       if (!(b.kcal > 0)) continue;
       if (onlyEmpty && plannedItems(p, d, b.slot.id).length) { skipped++; continue; }
       const all = pool.recipes.concat(pool.foods);
-      const twoPiece = isBig[si] && pool.recipes.length > 0 && pool.foods.length > 0;
+      /* LL-660: in a batch cook EVERY slot is a pot plus a side. A pot alone in
+         the small slots put an adult at 256 g of protein against 200 and a
+         mirrored minor at 377 against 140 — the earned-share rule below is what
+         keeps a chicken recipe from being the whole plate, and it only runs on
+         two-piece slots. */
+      const twoPiece = (isBig[si] || batch) && pool.recipes.length > 0 && pool.foods.length > 0;
       let left = b.kcal;
       for (let piece = 0; piece < (twoPiece ? 2 : 1); piece++) {
         /* HOW BIG THE MAIN IS, is itself a calculation. A fixed 60/40 split
@@ -2045,7 +2065,14 @@ function generateWeek(p, weekId, opts) {
         const leads = !twoPiece || piece === 0;      // is this the meal, or what goes with it
         let pick = null, best = Infinity;
         for (const cand of all) {
-          if (usedToday[cand.kind + ":" + cand.id]) continue;
+          /* LL-660: in a batch cook the MEAL is one of the pots, every time. With
+             three recipes and five or seven slots the pots run out by lunch, and
+             the old rule (nothing twice in a day) then made "three apples and
+             three tortillas" a meal. A pot may lead again; a plain food may not
+             lead while there is a pot to eat from. Sides still never repeat. */
+          const again = batch && leads && cand.kind === "recipe";
+          if (usedToday[cand.kind + ":" + cand.id] && !again) continue;
+          if (batch && leads && cand.kind === "food" && pool.recipes.length) continue;
           if (leads && genIsDense(cand)) continue;    // oil, honey, syrup, hard cheese: never the meal
           if (!genRecipeFitsDay(cand, d, firstSeen)) continue;
           /* a light nudge away from whatever the week has leaned on already, so
@@ -2054,6 +2081,7 @@ function generateWeek(p, weekId, opts) {
              main of a big slot, but only preferred — the fit still decides. */
           const seen = (useCount[cand.kind + ":" + cand.id] || 0);
           let score = genFitScore(cand, want) * (1 + 0.12 * seen) * houseTilt(cand);
+          if (again && usedToday[cand.kind + ":" + cand.id]) score *= 1.3;   // the pot not yet eaten today goes first
           if (twoPiece && piece === 0) score *= (cand.kind === "recipe" ? 0.8 : 1.25);
           if (score < best) { best = score; pick = cand; }
         }
@@ -2342,7 +2370,20 @@ function autoPlanDates(dates, opts) {
       const full = id => (houseCoverage({ kind: "recipe", id }) > 0.95 ? 1 : 0);
       const top = Object.keys(vote).sort((a, b) => (full(b) - full(a)) || (vote[b] - vote[a])).slice(0, BATCH_MAINS);
       if (top.length && Object.keys(vote).length > top.length) { keep = {}; top.forEach(id => { keep[id] = true; }); }
-      if (top.length) { keepBy[p.id] = {}; top.forEach(id => { keepBy[p.id][id] = true; }); }
+      /* LL-660: what a mirrored minor may top up from. NOT the three pots alone —
+         that put a 140 g protein target at 370 g, because the only recipes left
+         to size the day up with were the adult's protein mains. The pots, plus
+         every recipe that is mostly carbohydrate or fat (under a fifth of its
+         calories from protein): the pancakes, the potatoes, the sandwich. */
+      if (top.length) {
+        keepBy[p.id] = {};
+        top.forEach(id => { keepBy[p.id][id] = true; });
+        for (const r of Object.values(S.recipes)) {
+          if (r.retired) continue;
+          const c = r.computed || computeRecipe(r).computed, m = c && (c.perServing && c.perServing.kcal > 0 ? c.perServing : c.per100g);
+          if (m && m.kcal > 0 && m.p * 4 / m.kcal < 0.2) keepBy[p.id][r.id] = true;
+        }
+      }
     }
     for (const x of first) {
       const g = x.g;
@@ -3192,7 +3233,7 @@ let S = null;
    so. pwa/build.mjs rewrites this ONE line with the commit count, the commit
    date and the build hash, so a phone can tell an old build from a new one
    without guessing. Nothing here is fetched; it is a constant. */
-const BUILD = {"n":116,"date":"2026-11-12","id":"4cf92d6704d1"};
+const BUILD = {"n":118,"date":"2026-11-12","id":"d5b630c46708"};
 function buildLabel() {
   return BUILD.n ? "Version " + BUILD.n + " · " + BUILD.date + " · build " + BUILD.id : "Development copy — not an installed build";
 }
@@ -7281,7 +7322,9 @@ function prepPlan(dates) {
     const r = S.recipes[a.recipeId];
     if (!r || !r.servings) return null;
     const required = a.servings / r.servings;
-    const cookAt = Math.max(ceilTo(required, 0.25), 0.25);
+    /* LL-660: half batches. A quarter of a recipe is not something anyone
+       measures out; the week panel keeps its quarters (LL-105 is pinned to them). */
+    const cookAt = Math.max(ceilTo(required, 0.5), 0.5);
     const c = r.computed || computeRecipe(r).computed;
     const gPer = c.cookedG ? c.cookedG / r.servings : null;    // cooked grams of one serving
     const days = Object.keys(a.days).sort();
@@ -7295,6 +7338,7 @@ function prepPlan(dates) {
     for (const ig of r.ingredients || []) add(ig.foodId, ig.rawGrams * cookAt);
     return {
       recipe: r, servings: a.servings, byProfile: a.byProfile, required, cookAt, gPer,
+      spare: Math.max(0, cookAt * r.servings - a.servings),
       yieldG: c.cookedG ? c.cookedG * cookAt : null, days, byDay: a.days, ingredients: ing,
       later, laterServings, noFreeze: later.length > 0 && r.freezes === false,
       freeze: later.length > 0 && r.freezes !== false, holdsDays: r.holdsDays
@@ -7375,11 +7419,33 @@ function viewPrep() {
       '.</b> Fill them from Plan (✦ Fill this week automatically) and this list grows.</div>';
   }
   if (!pl.recipes.length && !pl.foods.length) return h;
+  /* LL-660: what the plan comes to, said out loud — the automatic fill has no
+     preview sheet, so this is where an off-target day shows. Constraint 10:
+     every macro carries its confidence. */
+  h += '<div class="card" style="margin-top:.6rem"><div class="eyebrow">What these days come to · per day</div><table class="mono-table" style="margin-top:.4rem"><thead><tr><th>Who</th><th>Calories</th><th>Protein</th></tr></thead><tbody>';
+  const overP = [];
+  for (const pr of Object.values(S.profiles)) {
+    const days = dates.filter(d => dayHasPlan(pr, d));
+    if (!days.length) continue;
+    const tots = days.map(d => dayPlanTotals(pr, d));
+    const avg = k => tots.reduce((a, x) => a + (x.t[k] || 0), 0) / days.length;
+    const conf = tots.some(x => x.confidence === "unknown") ? "unknown" : (tots.some(x => x.confidence === "estimated") ? "estimated" : "verified");
+    const k = avg("kcal"), pp = avg("p"), tk = pr.targets.kcal || 0, tp = pr.targets.protein || 0;
+    if (tp > 0 && pp > tp * 1.25) overP.push(pr);
+    h += '<tr><td>' + esc(pr.name) + ' <span class="conf ' + conf + '">' + conf.toUpperCase() + '</span></td><td>' + num(k) + (tk ? ' of ' + num(tk) : '') + '</td><td>' + num(pp) + ' g' + (tp ? ' of ' + num(tp) : '') + '</td></tr>';
+  }
+  h += '</tbody></table>';
+  for (const pr of overP) {
+    h += '<p class="dense" style="margin:.5rem 0 0">' + (pr.isMinor && Object.keys(S.profiles).length === 2
+      ? esc(pr.name) + '&rsquo;s days are the same meals as the adult&rsquo;s, sized up — so they carry the adult&rsquo;s protein and run over ' + esc(pr.name) + '&rsquo;s own protein target. Calories are on target. To plan from ' + esc(pr.name) + '&rsquo;s own foods instead: Plan → Fill this week automatically → Built for ' + esc(pr.name) + '.'
+      : 'Protein runs over target for ' + esc(pr.name) + '. The plan can only use foods it knows you eat — star rice, potatoes, bread or fruit as favourites on the Food tab, then plan these days again.') + '</p>';
+  }
+  h += '</div>';
   h += '<div class="card" style="margin-top:.6rem"><div class="eyebrow">Step 3 — cook · combined across both profiles</div>';
   if (!pl.recipes.length) h += '<p class="muted" style="margin:.5rem 0 0">No recipes in these days — only loose foods below.</p>';
   for (const x of pl.recipes) {
     h += '<div class="batch"><div class="row"><span class="grow"><b>' + esc(x.recipe.name) + '</b><br>' +
-      '<span class="sub num">Cook ×' + x.cookAt + (x.yieldG ? ' · yields ' + num(x.yieldG) + ' g' : '') + ' · ' + R1(x.servings) + ' servings</span><br>' +
+      '<span class="sub num">Cook ×' + x.cookAt + (x.yieldG ? ' · yields ' + num(x.yieldG) + ' g' : '') + ' · ' + R1(x.servings) + ' servings' + (x.spare >= 0.25 ? ' · ' + R1(x.spare) + ' spare' : '') + '</span><br>' +
       '<span class="sub num">' + Object.keys(x.byProfile).map(id => esc(pn(id)) + ' ' + R1(x.byProfile[id]) +
         (x.gPer ? ' (' + num(x.byProfile[id] * x.gPer) + ' g)' : '')).join(' + ') + '</span></span></div>';
     if (x.freeze || x.noFreeze) h += '<div class="safety num" style="margin-top:.5rem">' + esc(prepKeepLine(x)) + '</div>';
@@ -7410,7 +7476,7 @@ function viewPrep() {
   if (covered.length) h += '<div class="card" style="margin-top:.6rem"><div class="eyebrow">Already in the house — uses</div><table class="mono-table" style="margin-top:.4rem"><tbody>' +
     covered.map(l => '<tr><td>' + esc(l.name) + '<br><span class="muted num">have ' + num(l.haveG) + ' g</span></td><td style="white-space:nowrap">' + num(l.rawG) + ' g</td></tr>').join("") + '</tbody></table></div>';
   h += '<div class="card" style="margin-top:.6rem">' +
-    '<p class="muted" style="font-size:.8125rem;margin:.5rem 0 0">Recipes are cooked at the next quarter batch above what the days need. Cooked forms are counted as the raw food you buy.</p></div>';
+    '<p class="muted" style="font-size:.8125rem;margin:.5rem 0 0">Recipes are cooked at the next half batch above what the days need; anything over is shown as spare. Cooked forms are counted as the raw food you buy.</p></div>';
   h += '<button class="btn full tall" data-act="prepDownload" style="margin-top:.6rem">⤓ Download this prep list (text)</button>' +
     '<button class="btn full tall" data-act="prepEmail" style="margin-top:.5rem">✉ Email this prep list</button>';
   return h;
