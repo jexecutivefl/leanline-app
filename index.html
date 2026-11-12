@@ -2981,7 +2981,7 @@ let S = null;
    so. pwa/build.mjs rewrites this ONE line with the commit count, the commit
    date and the build hash, so a phone can tell an old build from a new one
    without guessing. Nothing here is fetched; it is a constant. */
-const BUILD = {"n":102,"date":"2026-11-12","id":"3c61d027d747"};
+const BUILD = {"n":104,"date":"2026-11-12","id":"ce3acb8f6ac4"};
 function buildLabel() {
   return BUILD.n ? "Version " + BUILD.n + " · " + BUILD.date + " · build " + BUILD.id : "Development copy — not an installed build";
 }
@@ -7061,17 +7061,28 @@ function prepPlan(dates) {
     const c = r.computed || computeRecipe(r).computed;
     const gPer = c.cookedG ? c.cookedG / r.servings : null;    // cooked grams of one serving
     const days = Object.keys(a.days).sort();
-    const span = days.length > 1 ? Math.round((parseISO(days[days.length - 1]) - parseISO(days[0])) / 86400000) : 0;
+    /* Prep is cooked NOW, so the fridge clock starts today (same holdsDays rule
+       as the thaw item, LL-106). Portions eaten after it runs out are frozen
+       today — or, for a recipe that does not freeze, cooked a second time. */
+    const fridgeUntil = r.holdsDays != null ? shiftDate(isoDate(), r.holdsDays) : null;
+    const later = fridgeUntil ? days.filter(d => d > fridgeUntil) : [];
+    const laterServings = later.reduce((s, d) => s + a.days[d], 0);
     const ing = batchIngredients(r, cookAt);
     for (const ig of r.ingredients || []) add(ig.foodId, ig.rawGrams * cookAt);
     return {
       recipe: r, servings: a.servings, byProfile: a.byProfile, required, cookAt, gPer,
       yieldG: c.cookedG ? c.cookedG * cookAt : null, days, byDay: a.days, ingredients: ing,
-      noFreeze: r.freezes === false && r.holdsDays != null && span > r.holdsDays, holdsDays: r.holdsDays
+      later, laterServings, noFreeze: later.length > 0 && r.freezes === false,
+      freeze: later.length > 0 && r.freezes !== false, holdsDays: r.holdsDays
     };
   }).filter(Boolean).sort((x, y) => x.recipe.name.localeCompare(y.recipe.name));
   const foods = Object.values(loose).sort((x, y) => S.foods[x.foodId].name.localeCompare(S.foods[y.foodId].name));
-  for (const f of foods) add(f.foodId, f.grams);
+  for (const f of foods) {
+    add(f.foodId, f.grams);
+    /* a cooked form eaten on its own (plain chicken, rice) still has to be cooked */
+    const bt = buyTarget(S.foods[f.foodId]);
+    f.cookFrom = bt ? { name: bt.food.name, grams: f.grams * bt.factor } : null;
+  }
   const wid = weekIdOf(dates[0]);
   const buy = Object.keys(need).map(fid => groceryLineFor(fid, need[fid], wid)).filter(Boolean)
     .sort((x, y) => x.name.localeCompare(y.name));
@@ -7079,6 +7090,13 @@ function prepPlan(dates) {
 }
 function prepTitle(dates) {
   return dates.length === 1 ? fmtDate(dates[0]) : fmtDate(dates[0]) + " – " + fmtDate(dates[dates.length - 1]) + " (" + dates.length + " days)";
+}
+function prepKeepLine(x) {
+  const g = x.gPer ? " (" + num(x.laterServings * x.gPer) + " g)" : "";
+  const when = x.later.map(fmtDate).join(", ");
+  return x.noFreeze
+    ? "Does not freeze and holds " + x.holdsDays + " days in the fridge. The " + R1(x.laterServings) + " servings" + g + " for " + when + " need a second cook."
+    : "Holds " + x.holdsDays + " days in the fridge. Freeze " + R1(x.laterServings) + " servings" + g + " today for " + when + ".";
 }
 function prepText(dates, pl) {
   const pn = id => (S.profiles[id] ? S.profiles[id].name : id);
@@ -7090,11 +7108,16 @@ function prepText(dates, pl) {
       " · " + R1(x.servings) + " servings: " + Object.keys(x.byProfile).map(id => pn(id) + " " + R1(x.byProfile[id]) +
       (x.gPer ? " (" + num(x.byProfile[id] * x.gPer) + " g)" : "")).join(", "));
     for (const g of x.ingredients) out.push("        " + g.name + " " + num(g.grams) + " g" + (g.note ? " · " + g.note : ""));
-    if (x.noFreeze) out.push("        DOES NOT FREEZE — holds " + x.holdsDays + " days; cook twice.");
+    if (x.freeze || x.noFreeze) out.push("        " + prepKeepLine(x));
   }
-  if (pl.foods.length) {
-    out.push("", "ALSO EATEN (no cooking)");
-    for (const f of pl.foods) out.push("  " + S.foods[f.foodId].name + " " + num(f.grams) + " g");
+  const plain = pl.foods.filter(f => f.cookFrom), ready = pl.foods.filter(f => !f.cookFrom);
+  if (plain.length) {
+    out.push("", "ALSO COOK (plain)");
+    for (const f of plain) out.push("  [ ] " + S.foods[f.foodId].name + " " + num(f.grams) + " g — from " + num(f.cookFrom.grams) + " g " + f.cookFrom.name);
+  }
+  if (ready.length) {
+    out.push("", "PORTION OUT (no cooking)");
+    for (const f of ready) out.push("  [ ] " + S.foods[f.foodId].name + " " + num(f.grams) + " g");
   }
   out.push("", "RAW TOTAL TO HAVE ON HAND");
   for (const l of pl.buy) out.push("  " + l.name + " — " + num(l.rawG) + " g" + (l.haveG > 0 ? " (pantry " + num(l.haveG) + " g)" : ""));
@@ -7126,17 +7149,22 @@ function viewPrep() {
       '<span class="sub num">Cook ×' + x.cookAt + (x.yieldG ? ' · yields ' + num(x.yieldG) + ' g' : '') + ' · ' + R1(x.servings) + ' servings</span><br>' +
       '<span class="sub num">' + Object.keys(x.byProfile).map(id => esc(pn(id)) + ' ' + R1(x.byProfile[id]) +
         (x.gPer ? ' (' + num(x.byProfile[id] * x.gPer) + ' g)' : '')).join(' + ') + '</span></span></div>';
-    if (x.noFreeze) h += '<div class="safety" style="margin-top:.5rem"><b>' + esc(x.recipe.name) + ' does not freeze.</b> It holds ' +
-      x.holdsDays + ' days — cook it twice across these days.</div>';
+    if (x.freeze || x.noFreeze) h += '<div class="safety num" style="margin-top:.5rem">' + esc(prepKeepLine(x)) + '</div>';
     h += '<details style="margin-top:.4rem"><summary class="btn sm" style="display:block;min-height:48px;line-height:2">Raw ingredients at ×' + x.cookAt + '</summary>' +
       '<table class="mono-table" style="margin-top:.4rem"><tbody>' + x.ingredients.map(g =>
         '<tr><td>' + esc(g.name) + (g.note ? ' <span class="muted">· ' + esc(g.note) + '</span>' : '') + '</td><td>' + num(g.grams) + ' g</td></tr>').join("") +
       '</tbody></table></details></div>';
   }
   h += '</div>';
-  if (pl.foods.length) {
-    h += '<div class="card" style="margin-top:.6rem"><div class="eyebrow">Also eaten — no cooking</div><table class="mono-table" style="margin-top:.4rem"><tbody>' +
-      pl.foods.map(f => '<tr><td>' + esc(S.foods[f.foodId].name) + '</td><td>' + num(f.grams) + ' g</td></tr>').join("") + '</tbody></table></div>';
+  const plain = pl.foods.filter(f => f.cookFrom), ready = pl.foods.filter(f => !f.cookFrom);
+  if (plain.length) {
+    h += '<div class="card" style="margin-top:.6rem"><div class="eyebrow">Also cook — plain</div><table class="mono-table" style="margin-top:.4rem"><tbody>' +
+      plain.map(f => '<tr><td>' + esc(S.foods[f.foodId].name) + ' <span class="muted">· from ' + num(f.cookFrom.grams) + ' g ' + esc(f.cookFrom.name) +
+        '</span></td><td style="white-space:nowrap">' + num(f.grams) + ' g</td></tr>').join("") + '</tbody></table></div>';
+  }
+  if (ready.length) {
+    h += '<div class="card" style="margin-top:.6rem"><div class="eyebrow">Portion out — no cooking</div><table class="mono-table" style="margin-top:.4rem"><tbody>' +
+      ready.map(f => '<tr><td>' + esc(S.foods[f.foodId].name) + '</td><td>' + num(f.grams) + ' g</td></tr>').join("") + '</tbody></table></div>';
   }
   h += '<div class="card" style="margin-top:.6rem"><div class="eyebrow">Raw total to have on hand</div><table class="mono-table" style="margin-top:.4rem"><tbody>' +
     pl.buy.map(l => '<tr><td>' + esc(l.name) + (l.haveG > 0 ? ' <span class="muted">· pantry ' + num(l.haveG) + ' g</span>' : '') +
