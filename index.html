@@ -2225,32 +2225,51 @@ function applyGeneratedWeek(p, weekId, rows, noSnap) {
 function dayHasPlan(p, d) {
   return p.slots.some(s => plannedItems(p, d, s.id).some(it => it.source === "recipe" || it.source === "food"));
 }
-function autoPlanDay(d) {
-  if (!S || S.settings.autoPlan === false || !d || d < isoDate()) return [];
+function autoPlanDay(d) { return autoPlanDates([d]); }
+/* LL-657. the adult 2026-11-12, on the Prep list: "that did 4 meals and onlyh for
+   thursday when i picked for it to do it 4 days". Asking for N days means N
+   days get planned — so the same once-only fill runs over a whole run of
+   dates. One generateWeek call per week, so the rotation and holding-window
+   rules see the days together instead of producing N copies of one day. */
+function autoPlanDates(dates) {
+  if (!S || S.settings.autoPlan === false) return [];
+  const today = isoDate();
   UI.autoTried = UI.autoTried || {};
-  const made = [];
+  const made = {};
   const ps = Object.values(S.profiles).sort((a, b) => (a.isMinor ? 1 : 0) - (b.isMinor ? 1 : 0));
   for (const p of ps) {
-    const key = p.id + "|" + d;
-    if (UI.autoTried[key] || (p.autoPlanned && p.autoPlanned[d])) continue;
-    UI.autoTried[key] = true;
-    if (dayHasPlan(p, d) || logsFor(p.id, d).length || p.slots.some(s => slotIsExplicit(p, d, s.id))) continue;
     const others = ps.filter(o => o.id !== p.id);
-    const src = p.isMinor && others.length === 1 && !others[0].isMinor && dayHasPlan(others[0], d) ? others[0].id : undefined;
-    const wid = weekIdOf(d);
-    let r = generateWeek(p, wid, { onlyEmpty: !src, dates: [d], mirrorFrom: src });
-    if ((!r.ok || !r.rows.length) && src) r = generateWeek(p, wid, { onlyEmpty: true, dates: [d] });
-    if (!r.ok || !r.rows.length) continue;
-    if (!made.length) snapshotPlans("Automatic plan for " + fmtDate(d));
-    applyGeneratedWeek(p, wid, r.rows, true);
-    p.autoPlanned = p.autoPlanned || {};
-    p.autoPlanned[d] = true;
-    const floor = shiftDate(isoDate(), -14);
-    for (const k of Object.keys(p.autoPlanned)) if (k < floor) delete p.autoPlanned[k];
-    made.push(p.name);
+    const adult = p.isMinor && others.length === 1 && !others[0].isMinor ? others[0] : null;
+    const todo = [];
+    for (const d of dates) {
+      if (!d || d < today) continue;
+      const key = p.id + "|" + d;
+      if (UI.autoTried[key] || (p.autoPlanned && p.autoPlanned[d])) continue;
+      UI.autoTried[key] = true;
+      if (dayHasPlan(p, d) || logsFor(p.id, d).length || p.slots.some(s => slotIsExplicit(p, d, s.id))) continue;
+      todo.push(d);
+    }
+    /* mirrored days and own-pool days are separate generator modes */
+    const groups = {};
+    for (const d of todo) {
+      const src = adult && dayHasPlan(adult, d) ? adult.id : "";
+      const k = weekIdOf(d) + "|" + src;
+      (groups[k] = groups[k] || { wid: weekIdOf(d), src, ds: [] }).ds.push(d);
+    }
+    for (const g of Object.values(groups)) {
+      let r = generateWeek(p, g.wid, { onlyEmpty: !g.src, dates: g.ds, mirrorFrom: g.src || undefined });
+      if ((!r.ok || !r.rows.length) && g.src) r = generateWeek(p, g.wid, { onlyEmpty: true, dates: g.ds });
+      if (!r.ok || !r.rows.length) continue;
+      if (!Object.keys(made).length) snapshotPlans("Automatic plan for " + (dates.length === 1 ? fmtDate(dates[0]) : dates.length + " days"));
+      applyGeneratedWeek(p, g.wid, r.rows, true);
+      p.autoPlanned = p.autoPlanned || {};
+      for (const row of r.rows) { p.autoPlanned[row.date] = true; made[row.date] = true; }
+    }
+    if (p.autoPlanned) { const floor = shiftDate(today, -14); for (const k of Object.keys(p.autoPlanned)) if (k < floor) delete p.autoPlanned[k]; }
   }
-  if (made.length) save();
-  return made;
+  const out = Object.keys(made).sort();
+  if (out.length) save();
+  return out;
 }
 
 /* LL-638. Which of the target's slots a mirrored meal lands in: an exact name
@@ -3030,7 +3049,7 @@ let S = null;
    so. pwa/build.mjs rewrites this ONE line with the commit count, the commit
    date and the build hash, so a phone can tell an old build from a new one
    without guessing. Nothing here is fetched; it is a constant. */
-const BUILD = {"n":108,"date":"2026-11-12","id":"672b79f3058e"};
+const BUILD = {"n":112,"date":"2026-11-12","id":"e4da646b4242"};
 function buildLabel() {
   return BUILD.n ? "Version " + BUILD.n + " · " + BUILD.date + " · build " + BUILD.id : "Development copy — not an installed build";
 }
@@ -3114,7 +3133,8 @@ function render() {
     return;
   }
   document.body.classList.remove("onbmode");
-  const autoMade = UI.tab === "today" ? autoPlanDay(UI.date) : [];
+  /* LL-656/657: Today plans its own day; the Prep list plans every day it was asked for */
+  const autoMade = UI.tab === "today" ? autoPlanDay(UI.date) : (UI.tab === "prep" ? autoPlanDates(prepDatesFor()) : []);
   app.innerHTML = viewStorageWarning() + viewUpdateReady() + viewExportOffer() + (
     UI.tab === "today" ? viewToday(p) :
     UI.tab === "food" ? viewFood(p) :
@@ -3131,7 +3151,9 @@ function render() {
   const dk = el("dock"); if (dk) dk.innerHTML = dock;
   if (dock) document.body.classList.add("docked"); else document.body.classList.remove("docked");
   restoreFocus();
-  if (autoMade.length) toast("Meals planned for " + (UI.date === isoDate() ? "today" : fmtDate(UI.date)) + " — tap ＋ Log as you eat. Change or undo on Plan.");
+  if (autoMade.length) toast(UI.tab === "prep"
+    ? "Planned " + autoMade.length + " day" + (autoMade.length === 1 ? "" : "s") + " for you (" + autoMade.map(fmtDate).join(", ") + "). Change or undo on Plan."
+    : "Meals planned for " + (UI.date === isoDate() ? "today" : fmtDate(UI.date)) + " — tap ＋ Log as you eat. Change or undo on Plan.");
 }
 
 /* Switching the profile tab rebuilds the grid; the position in a 7-day
