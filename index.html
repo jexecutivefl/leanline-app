@@ -2213,6 +2213,46 @@ function applyGeneratedWeek(p, weekId, rows, noSnap) {
   return rows.length;
 }
 
+/* ---- the day plans itself (LL-656) -------------------------
+   the adult 2026-11-12: "I want it to fill out my meals for the day itself. i dont
+   want to choose it knows what i eat." A day (today or later) that has nothing
+   planned, nothing logged and that nobody has touched is planned the first time
+   it is opened — same generator, same pool (his recipes, favourites, recents
+   and template staples), no sheet and no choices. A minor mirrors the one
+   adult's day sized up, which is the LL-638 rule. It PLANS; it never logs —
+   eating is still one tap per meal. Each day is auto-planned once: undo it or
+   clear it and it stays the way he left it. Settings can turn it off. */
+function dayHasPlan(p, d) {
+  return p.slots.some(s => plannedItems(p, d, s.id).some(it => it.source === "recipe" || it.source === "food"));
+}
+function autoPlanDay(d) {
+  if (!S || S.settings.autoPlan === false || !d || d < isoDate()) return [];
+  UI.autoTried = UI.autoTried || {};
+  const made = [];
+  const ps = Object.values(S.profiles).sort((a, b) => (a.isMinor ? 1 : 0) - (b.isMinor ? 1 : 0));
+  for (const p of ps) {
+    const key = p.id + "|" + d;
+    if (UI.autoTried[key] || (p.autoPlanned && p.autoPlanned[d])) continue;
+    UI.autoTried[key] = true;
+    if (dayHasPlan(p, d) || logsFor(p.id, d).length || p.slots.some(s => slotIsExplicit(p, d, s.id))) continue;
+    const others = ps.filter(o => o.id !== p.id);
+    const src = p.isMinor && others.length === 1 && !others[0].isMinor && dayHasPlan(others[0], d) ? others[0].id : undefined;
+    const wid = weekIdOf(d);
+    let r = generateWeek(p, wid, { onlyEmpty: !src, dates: [d], mirrorFrom: src });
+    if ((!r.ok || !r.rows.length) && src) r = generateWeek(p, wid, { onlyEmpty: true, dates: [d] });
+    if (!r.ok || !r.rows.length) continue;
+    if (!made.length) snapshotPlans("Automatic plan for " + fmtDate(d));
+    applyGeneratedWeek(p, wid, r.rows, true);
+    p.autoPlanned = p.autoPlanned || {};
+    p.autoPlanned[d] = true;
+    const floor = shiftDate(isoDate(), -14);
+    for (const k of Object.keys(p.autoPlanned)) if (k < floor) delete p.autoPlanned[k];
+    made.push(p.name);
+  }
+  if (made.length) save();
+  return made;
+}
+
 /* LL-638. Which of the target's slots a mirrored meal lands in: an exact name
    match first (the Copy-day convention), else the slot nearest in time of day —
    the adult's 13:00 meal is the boy's lunch whatever the slots are called.
@@ -2990,7 +3030,7 @@ let S = null;
    so. pwa/build.mjs rewrites this ONE line with the commit count, the commit
    date and the build hash, so a phone can tell an old build from a new one
    without guessing. Nothing here is fetched; it is a constant. */
-const BUILD = {"n":106,"date":"2026-11-12","id":"db7d937de95e"};
+const BUILD = {"n":108,"date":"2026-11-12","id":"672b79f3058e"};
 function buildLabel() {
   return BUILD.n ? "Version " + BUILD.n + " · " + BUILD.date + " · build " + BUILD.id : "Development copy — not an installed build";
 }
@@ -3074,6 +3114,7 @@ function render() {
     return;
   }
   document.body.classList.remove("onbmode");
+  const autoMade = UI.tab === "today" ? autoPlanDay(UI.date) : [];
   app.innerHTML = viewStorageWarning() + viewUpdateReady() + viewExportOffer() + (
     UI.tab === "today" ? viewToday(p) :
     UI.tab === "food" ? viewFood(p) :
@@ -3090,6 +3131,7 @@ function render() {
   const dk = el("dock"); if (dk) dk.innerHTML = dock;
   if (dock) document.body.classList.add("docked"); else document.body.classList.remove("docked");
   restoreFocus();
+  if (autoMade.length) toast("Meals planned for " + (UI.date === isoDate() ? "today" : fmtDate(UI.date)) + " — tap ＋ Log as you eat. Change or undo on Plan.");
 }
 
 /* Switching the profile tab rebuilds the grid; the position in a 7-day
@@ -3495,6 +3537,9 @@ function viewSettings() {
   /* LL-647: rest timer */
   const onoff = (k, labels) => [["1", labels ? labels[0] : "On"], ["0", labels ? labels[1] : "Off"]].map(([v, l]) =>
     '<button class="chipbtn" data-act="restPref" data-k="' + k + '" data-v="' + v + '" aria-pressed="' + ((S.settings[k] !== false) === (v === "1")) + '">' + l + '</button>').join("");
+  h += '<div class="card"><div class="eyebrow">Meals</div>' +
+    prefRow("Plan my day for me", onoff("autoPlan", ["On", "Off"])) +
+    '<p class="muted" style="font-size:.8125rem;margin:.5rem 0 0">On: a day with nothing planned is filled from your recipes and the foods you eat the first time you open it. It plans; it never logs. Each day is filled once — change it or undo it on Plan and it stays your way.</p></div>';
   h += '<div class="card"><div class="eyebrow">Rest timer</div>' +
     prefRow("Rest timer", onoff("restTimer")) +
     prefRow("Start it", onoff("restAutoStart", ["When I mark a set done", "I'll start it myself"])) +
