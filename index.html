@@ -2231,8 +2231,9 @@ function autoPlanDay(d) { return autoPlanDates([d]); }
    days get planned — so the same once-only fill runs over a whole run of
    dates. One generateWeek call per week, so the rotation and holding-window
    rules see the days together instead of producing N copies of one day. */
-function autoPlanDates(dates) {
-  if (!S || S.settings.autoPlan === false) return [];
+function autoPlanDates(dates, opts) {
+  opts = opts || {};       // force: he asked for it by name (LL-658) — the switch and a day's logs do not veto it
+  if (!S || (S.settings.autoPlan === false && !opts.force)) return [];
   const today = isoDate();
   UI.autoTried = UI.autoTried || {};
   const made = {};
@@ -2246,7 +2247,7 @@ function autoPlanDates(dates) {
       const key = p.id + "|" + d;
       if (UI.autoTried[key] || (p.autoPlanned && p.autoPlanned[d])) continue;
       UI.autoTried[key] = true;
-      if (dayHasPlan(p, d) || logsFor(p.id, d).length || p.slots.some(s => slotIsExplicit(p, d, s.id))) continue;
+      if (dayHasPlan(p, d) || (!opts.force && logsFor(p.id, d).length) || p.slots.some(s => slotIsExplicit(p, d, s.id))) continue;
       todo.push(d);
     }
     /* mirrored days and own-pool days are separate generator modes */
@@ -2260,7 +2261,7 @@ function autoPlanDates(dates) {
       let r = generateWeek(p, g.wid, { onlyEmpty: !g.src, dates: g.ds, mirrorFrom: g.src || undefined });
       if ((!r.ok || !r.rows.length) && g.src) r = generateWeek(p, g.wid, { onlyEmpty: true, dates: g.ds });
       if (!r.ok || !r.rows.length) continue;
-      if (!Object.keys(made).length) snapshotPlans("Automatic plan for " + (dates.length === 1 ? fmtDate(dates[0]) : dates.length + " days"));
+      if (!Object.keys(made).length && !opts.noSnap) snapshotPlans("Automatic plan for " + (dates.length === 1 ? fmtDate(dates[0]) : dates.length + " days"));
       applyGeneratedWeek(p, g.wid, r.rows, true);
       p.autoPlanned = p.autoPlanned || {};
       for (const row of r.rows) { p.autoPlanned[row.date] = true; made[row.date] = true; }
@@ -2270,6 +2271,57 @@ function autoPlanDates(dates) {
   const out = Object.keys(made).sort();
   if (out.length) save();
   return out;
+}
+
+/* ---- clear the plan for chosen days (LL-658) ----------------
+   the adult 2026-11-12: "we need a way to clear our meal plans of the days. like
+   fo rnow its all messed up". PLANS only — nothing logged is touched — and one
+   undo snapshot covers the whole thing, re-plan included. Two outcomes:
+   replan=true wipes the days back to a blank slate and fills them fresh;
+   replan=false leaves every slot explicitly empty, and marks the day so the
+   automatic fill does not put meals straight back. */
+function clearPlanDates(pids, dates, replan) {
+  snapshotPlans("Cleared " + dates.length + " day" + (dates.length === 1 ? "" : "s") + " of meal plans");
+  UI.autoTried = UI.autoTried || {};
+  for (const pid of pids) {
+    const p = S.profiles[pid];
+    if (!p) continue;
+    for (const d of dates) {
+      const w = planWeek(weekIdOf(d), true);
+      w.days[d] = w.days[d] || {};
+      if (replan) {
+        delete w.days[d][pid];
+        if (p.autoPlanned) delete p.autoPlanned[d];
+        delete UI.autoTried[pid + "|" + d];
+      } else {
+        w.days[d][pid] = p.slots.map(s => ({ slotId: s.id, source: "empty", refId: null, grams: null }));
+        p.autoPlanned = p.autoPlanned || {}; p.autoPlanned[d] = true;
+      }
+    }
+  }
+  save();
+  return replan ? autoPlanDates(dates, { force: true, noSnap: true }) : [];
+}
+function clearDatesFor() {
+  const c = UI.clr || (UI.clr = { days: 1, start: "today", who: "all" });
+  const s = c.start === "tomorrow" ? shiftDate(isoDate(), 1) : isoDate(), out = [];
+  for (let i = 0; i < Math.max(1, Math.min(7, c.days || 1)); i++) out.push(shiftDate(s, i));
+  return out;
+}
+function sheetClearPlan() {
+  const c = UI.clr || (UI.clr = { days: 1, start: "today", who: "all" });
+  const dates = clearDatesFor(), me = S.profiles[planPid()], many = Object.keys(S.profiles).length > 1;
+  let h = sheetHead("Clear meal plans", "Plans only — nothing you logged is touched. One Undo on Plan puts it all back.");
+  h += '<div class="eyebrow">How many days</div><div class="wrap" style="margin-top:.4rem">';
+  for (let i = 1; i <= 7; i++) h += '<button class="chipbtn" data-act="clrSet" data-k="days" data-v="' + i + '" aria-pressed="' + (c.days === i) + '">' + i + '</button>';
+  h += '</div><div class="eyebrow" style="margin-top:.6rem">Starting</div><div class="wrap" style="margin-top:.4rem">' +
+    [["today", "Today"], ["tomorrow", "Tomorrow"]].map(([v, l]) => '<button class="chipbtn" data-act="clrSet" data-k="start" data-v="' + v + '" aria-pressed="' + (c.start === v) + '">' + l + '</button>').join("") + '</div>';
+  if (many) h += '<div class="eyebrow" style="margin-top:.6rem">Whose plan</div><div class="wrap" style="margin-top:.4rem">' +
+    [["all", "Everyone"], ["me", esc(me.name) + " only"]].map(([v, l]) => '<button class="chipbtn" data-act="clrSet" data-k="who" data-v="' + v + '" aria-pressed="' + (c.who === v) + '">' + l + '</button>').join("") + '</div>';
+  h += '<p class="num" style="margin:.7rem 0 .6rem">' + esc(prepTitle(dates)) + '</p>' +
+    '<button class="btn primary full tall" data-act="clrGo" data-v="replan">Clear and plan them again for me</button>' +
+    '<button class="btn full tall" data-act="clrGo" data-v="empty" style="margin-top:.5rem">Clear and leave them empty</button>';
+  openSheet(h, {});
 }
 
 /* LL-638. Which of the target's slots a mirrored meal lands in: an exact name
@@ -3049,7 +3101,7 @@ let S = null;
    so. pwa/build.mjs rewrites this ONE line with the commit count, the commit
    date and the build hash, so a phone can tell an old build from a new one
    without guessing. Nothing here is fetched; it is a constant. */
-const BUILD = {"n":112,"date":"2026-11-12","id":"e4da646b4242"};
+const BUILD = {"n":114,"date":"2026-11-12","id":"8024fe45e9e9"};
 function buildLabel() {
   return BUILD.n ? "Version " + BUILD.n + " · " + BUILD.date + " · build " + BUILD.id : "Development copy — not an installed build";
 }
@@ -4828,6 +4880,7 @@ function viewPlan() {
     '<button class="btn" data-act="copyDayOpen">Copy a day…</button>' +
     '<button class="btn" data-act="copyWeekOpen">Copy week forward…</button>' +
     '<button class="btn" data-act="shareWeek">Share this week…</button></div>';
+  h += '<button class="btn full tall" data-act="clrOpen" style="margin-top:.5rem">Clear meal plans…</button>';
   h += '<button class="btn primary full tall" data-act="prepOpen" style="margin-top:.5rem">Prep list — what to make for 1–7 days</button>';
   h += '<button class="btn primary full tall" data-act="groceryOpen" style="margin-top:.5rem">Generate grocery list</button>';
 
@@ -8554,6 +8607,22 @@ const ACTS = {
     const toPid = radioValue("cwPid", fromPid);
     const r = copyWeek(fromPid, weekId, toPid);
     closeSheet(); UI.weekStart = r.target; render(); toast(copyResultToast(r));
+  },
+  clrOpen() { sheetClearPlan(); },
+  clrSet(t) {
+    const c = UI.clr || (UI.clr = { days: 1, start: "today", who: "all" });
+    c[t.dataset.k] = t.dataset.k === "days" ? (+t.dataset.v || 1) : t.dataset.v;
+    sheetClearPlan();
+  },
+  clrGo(t) {
+    const c = UI.clr || { who: "all" }, dates = clearDatesFor();
+    const pids = c.who === "me" ? [planPid()] : Object.keys(S.profiles);
+    const replan = t.dataset.v === "replan";
+    const made = clearPlanDates(pids, dates, replan);
+    closeSheet(); render();
+    toast(replan
+      ? (made.length ? "Cleared and planned again: " + made.length + " day" + (made.length === 1 ? "" : "s") + ". Undo is on Plan." : "Cleared. Nothing could be planned — add a recipe or favourite foods first.")
+      : "Cleared " + dates.length + " day" + (dates.length === 1 ? "" : "s") + ". Undo is on Plan.");
   },
   planUndo() { const l = undoPlans(); render(); toast(l ? "Undone" : "Nothing to undo"); },
 
