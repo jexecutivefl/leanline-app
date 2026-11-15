@@ -3233,7 +3233,7 @@ let S = null;
    so. pwa/build.mjs rewrites this ONE line with the commit count, the commit
    date and the build hash, so a phone can tell an old build from a new one
    without guessing. Nothing here is fetched; it is a constant. */
-const BUILD = {"n":118,"date":"2026-11-12","id":"d5b630c46708"};
+const BUILD = {"n":120,"date":"2026-11-14","id":"6b7605acc5a3"};
 function buildLabel() {
   return BUILD.n ? "Version " + BUILD.n + " · " + BUILD.date + " · build " + BUILD.id : "Development copy — not an installed build";
 }
@@ -4464,8 +4464,35 @@ function viewToday(p) {
   const view = UI.todayView || p.todayOpens || "day";
   let h = '<div class="tabs" role="tablist" aria-label="Today views">' +
     '<button role="tab" data-act="todayView" data-v="day" aria-selected="' + (view === "day") + '">Day</button>' +
+    '<button role="tab" data-act="todayView" data-v="tomorrow" aria-selected="' + (view === "tomorrow") + '">Tomorrow</button>' +
     '<button role="tab" data-act="todayView" data-v="meals" aria-selected="' + (view === "meals") + '">Meals</button></div>';
-  return h + (view === "day" ? viewDay(p) : viewMeals(p));
+  return h + (view === "day" ? viewDay(p) : view === "tomorrow" ? viewTomorrow(p) : viewMeals(p));
+}
+/* LL-661: tomorrow's list, read-only, WITH clock times — tonight's question is
+   "what time do I wake". Today's list stays timeless; this is a preview. */
+function viewTomorrow(p) {
+  const d = shiftDate(isoDate(), 1), sc = scheduleOf(p.id), L = sc.template.labels;
+  const rows = scheduleRows(p.id, d), blocks = blocksOn(p.id, d);
+  const first = rows.find(r => r.kind !== "meal" && r.at < 9999);
+  let h = '<div style="margin:.1rem 0 .5rem"><div style="font-size:1.125rem;font-weight:700">' + esc(fmtDate(d)) + '</div>' +
+    '<div class="muted">Tomorrow, a preview. Tick things on the day.</div></div>';
+  if (first) h += '<div class="card"><div class="eyebrow">Wake</div><div class="num" style="font-size:1.75rem;font-weight:800">' + esc(t12(first.at)) + '</div>' +
+    '<div class="muted">' + esc(first.label) + '</div></div>';
+  if (blocks.length) {
+    const hrs = blocks.reduce((a, b) => a + (b[1] - b[0]), 0) / 60;
+    h += '<div class="card"><div class="eyebrow">' + esc(L.block || "Work block") + 's · ' + (Math.round(hrs * 10) / 10) + ' hr</div>' +
+      blocks.map(b => '<div class="num" style="font-size:1.125rem;margin-top:.25rem">' + t12(b[0]) + '–' + t12(b[1]) + '</div>').join("") + '</div>';
+  } else h += '<div class="card"><div class="eyebrow">' + esc(L.block || "Work block") + 's</div><div class="muted">None tomorrow.</div></div>';
+  h += '<div class="eyebrow" style="margin:.2rem 0 .4rem">In order</div>';
+  for (const r of rows) {
+    if (r.kind === "block") continue;
+    const when = r.at < 9999 ? t12(r.at) : "Night";
+    h += '<div class="row" style="gap:.6rem;padding:.55rem 0;border-bottom:1px solid var(--line, rgba(128,128,128,.25))">' +
+      '<span class="num" style="flex:0 0 4.2rem;font-weight:700">' + esc(when) + '</span>' +
+      '<span class="grow">' + esc(r.label) + (r.sub ? '<br><span class="muted" style="font-size:.8125rem">' + esc(r.sub) + '</span>' : '') + '</span></div>';
+  }
+  h += '<button class="btn full" data-act="dayEditSheet" data-w="' + parseISO(d).getDay() + '" style="margin-top:.7rem">Edit tomorrow&rsquo;s list</button>';
+  return h;
 }
 function viewDay(p) {
   const d = UI.date, sc = scheduleOf(p.id);
