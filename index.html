@@ -463,12 +463,9 @@ function migrate(st) {
     /* LL-403: an old export has no school answer, so a minor counts as UNASKED
        and the program flow will ask before it generates anything. */
     if (p.isMinor && p.schoolSC === undefined) p.schoolSC = { asked: false, exists: false, recordedOn: null, source: null };
-    /* LL-662: an eating window arrives only in a shape the app wrote; anything else is dropped (and never on a minor). */
-    if (p.eatWindow !== undefined) {
-      const e = p.eatWindow, okT = v => /^\d{2}:\d{2}$/.test(String(v));
-      if (p.isMinor || !e || typeof e !== "object" || !okT(e.start) || !okT(e.last) || !(Number.isInteger(e.meals) && e.meals >= 1 && e.meals <= 7) || !e.prev || typeof e.prev !== "object" || !Array.isArray(e.prev.slots) || !Array.isArray(e.prev.retired)) delete p.eatWindow;
-    }
-    if (p.retiredSlots !== undefined && !Array.isArray(p.retiredSlots)) delete p.retiredSlots;
+    /* LL-662: an eating window arrives only in a shape the app wrote, rebuilt field by field; anything else is dropped (and never on a minor). */
+    cleanEatWindow(p);
+    if (p.retiredSlots !== undefined) { const rs = Array.isArray(p.retiredSlots) ? p.retiredSlots.map(ewCleanSlot) : null; if (rs && rs.length <= 40 && rs.every(Boolean)) p.retiredSlots = rs; else delete p.retiredSlots; }
     /* LL-648: every profile carries a day list; the public default is generic. */
     if (p.schedule === undefined) p.schedule = defaultSchedule(p);
     normalizeSchedule(p.schedule, p);
@@ -540,6 +537,63 @@ function refreshSeedFood(stored, seed) {
 /* Stages 1–4 stored plans as plans[date][profileId][slotId] = [items].
    Spec §3 is plans[weekId].days[date][profileId] = [ {slotId, …} ].
    Convert in place; an old export must not lose a single planned item. */
+/* LL-662: allowlist rebuild of a saved eating window — no key from a file is ever used as a property name unless it is a date or a safe id. */
+function ewStrip(v, d) {
+  if (d > 6) return null;
+  if (Array.isArray(v)) return v.slice(0, 500).map(x => ewStrip(x, d + 1));
+  if (v && typeof v === "object") { const o = {}; for (const [k, x] of Object.entries(v)) if (!BAD_KEY(k)) o[k] = ewStrip(x, d + 1); return o; }
+  return typeof v === "function" || typeof v === "symbol" ? null : v;
+}
+function ewCleanSlot(x) {
+  const okT = v => /^\d{2}:\d{2}$/.test(String(v)), num = v => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  if (!x || typeof x !== "object" || !SAFE_ID.test(String(x.id))) return null;
+  const tb = {};
+  for (const [k, v] of Object.entries(x.timeByWeekday && typeof x.timeByWeekday === "object" ? x.timeByWeekday : {})) { if (BAD_KEY(k) || !/^(def|[0-6])$/.test(k)) continue; tb[k] = v === null || okT(v) ? v : null; }
+  const o = { id: String(x.id), name: String(x.name || "").slice(0, 40), timeByWeekday: tb, targetKcal: num(x.targetKcal), targetProtein: num(x.targetProtein) };
+  if (typeof x.was === "string") o.was = x.was.slice(0, 40);
+  if (typeof x.retiredInto === "string" && SAFE_ID.test(x.retiredInto)) o.retiredInto = x.retiredInto;
+  return o;
+}
+function cleanEatWindow(p) {
+  const e = p.eatWindow;
+  if (e === undefined) return;
+  const okT = v => /^\d{2}:\d{2}$/.test(String(v)), okD = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v));
+  const drop = () => { delete p.eatWindow; };
+  if (p.isMinor || !e || typeof e !== "object" || Array.isArray(e) || !okT(e.start) || !okT(e.last) || !(Number.isInteger(e.meals) && e.meals >= 1 && e.meals <= 7) || !e.prev || typeof e.prev !== "object") return drop();
+  const pv = e.prev;
+  if (!Array.isArray(pv.slots) || !Array.isArray(pv.retired) || pv.slots.length > 40 || pv.retired.length > 40) return drop();
+  const slots = pv.slots.map(ewCleanSlot), retired = pv.retired.map(ewCleanSlot);
+  if (!slots.every(Boolean) || !retired.every(Boolean)) return drop();
+  const dt = {};
+  if (!pv.dayTemplates || typeof pv.dayTemplates !== "object" || Array.isArray(pv.dayTemplates)) return drop();
+  for (const [k, v] of Object.entries(pv.dayTemplates)) {
+    if (BAD_KEY(k)) continue;
+    if (k === "byWeekday") { if (!Array.isArray(v)) return drop(); dt[k] = v.slice(0, 7).map(x => String(x).slice(0, 8)); continue; }
+    if (!v || typeof v !== "object" || Array.isArray(v)) return drop();
+    const t = {};
+    for (const [sid, arr] of Object.entries(v)) { if (BAD_KEY(sid)) continue; if (!SAFE_ID.test(sid) || !Array.isArray(arr)) return drop(); t[sid] = ewStrip(arr, 0); }
+    dt[k] = t;
+  }
+  const plans = {};
+  if (!pv.plans || typeof pv.plans !== "object" || Array.isArray(pv.plans)) return drop();
+  for (const [wid, days] of Object.entries(pv.plans)) {
+    if (!okD(wid) || !days || typeof days !== "object" || Array.isArray(days)) return drop();
+    plans[wid] = {};
+    for (const [d, arr] of Object.entries(days)) {
+      if (!okD(d) || !Array.isArray(arr) || arr.length > 500) return drop();
+      const items = ewStrip(arr, 0);
+      if (!items.every(it => it && typeof it === "object" && SAFE_ID.test(String(it.slotId)))) return drop();
+      plans[wid][d] = items;
+    }
+  }
+  if (!Array.isArray(pv.logs) || pv.logs.length > 5000) return drop();
+  const logs = [];
+  for (const x of pv.logs) {
+    if (!Array.isArray(x) || x.length !== 3 || !okD(x[0]) || !Number.isInteger(x[1]) || x[1] < 0 || !SAFE_ID.test(String(x[2]))) return drop();
+    logs.push([x[0], x[1], String(x[2])]);
+  }
+  p.eatWindow = { start: e.start, last: e.last, meals: e.meals, appliedAt: okD(e.appliedAt) ? e.appliedAt : null, prev: { slots, retired, dayTemplates: dt, plans, logs } };
+}
 function migratePlans(st) {
   const src = st.plans || {}, out = {};
   const ws = (st.settings && st.settings.weekStartsOn != null) ? st.settings.weekStartsOn : 1;
@@ -3239,7 +3293,7 @@ let S = null;
    so. pwa/build.mjs rewrites this ONE line with the commit count, the commit
    date and the build hash, so a phone can tell an old build from a new one
    without guessing. Nothing here is fetched; it is a constant. */
-const BUILD = {"n":126,"date":"2026-11-14","id":"26ab8df2e231"};
+const BUILD = {"n":128,"date":"2026-11-14","id":"9b58ffe726ee"};
 function buildLabel() {
   return BUILD.n ? "Version " + BUILD.n + " · " + BUILD.date + " · build " + BUILD.id : "Development copy — not an installed build";
 }
@@ -6896,6 +6950,7 @@ function restoreEatingWindow(pid) {
   p.retiredSlots = JSON.parse(JSON.stringify(pv.retired));
   p.dayTemplates = JSON.parse(JSON.stringify(pv.dayTemplates));
   for (const [wid, days] of Object.entries(pv.plans)) for (const [d, arr] of Object.entries(days)) {
+    if (BAD_KEY(wid) || BAD_KEY(d)) continue;
     const w = planWeek(wid, true); w.days[d] = w.days[d] || {}; w.days[d][pid] = JSON.parse(JSON.stringify(arr));
   }
   for (const [d, i, sid] of pv.logs) { const e = ((S.logs[pid] || {})[d] || [])[i]; if (e) e.slotId = sid; }

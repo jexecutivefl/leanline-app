@@ -1,9 +1,9 @@
-/* LEANLINE service worker — build 26ab8df2e231
+/* LEANLINE service worker — build 9b58ffe726ee
    Assets are cache-first. The page itself (a navigation) is network-first with a
    short timeout and the cache as fallback (LL-651): an online open shows the
    newest build at once, an offline open still works from cache. No third party
    is ever contacted — every request here is same-origin. */
-const CACHE = "leanline-26ab8df2e231";
+const CACHE = "leanline-9b58ffe726ee";
 const NAV_TIMEOUT_MS = 4000;
 const ASSETS = ["./", "./index.html", "./manifest.webmanifest",
                 "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
