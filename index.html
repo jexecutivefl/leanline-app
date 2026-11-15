@@ -463,6 +463,12 @@ function migrate(st) {
     /* LL-403: an old export has no school answer, so a minor counts as UNASKED
        and the program flow will ask before it generates anything. */
     if (p.isMinor && p.schoolSC === undefined) p.schoolSC = { asked: false, exists: false, recordedOn: null, source: null };
+    /* LL-662: an eating window arrives only in a shape the app wrote; anything else is dropped (and never on a minor). */
+    if (p.eatWindow !== undefined) {
+      const e = p.eatWindow, okT = v => /^\d{2}:\d{2}$/.test(String(v));
+      if (p.isMinor || !e || typeof e !== "object" || !okT(e.start) || !okT(e.last) || !(Number.isInteger(e.meals) && e.meals >= 1 && e.meals <= 7) || !e.prev || typeof e.prev !== "object" || !Array.isArray(e.prev.slots) || !Array.isArray(e.prev.retired)) delete p.eatWindow;
+    }
+    if (p.retiredSlots !== undefined && !Array.isArray(p.retiredSlots)) delete p.retiredSlots;
     /* LL-648: every profile carries a day list; the public default is generic. */
     if (p.schedule === undefined) p.schedule = defaultSchedule(p);
     normalizeSchedule(p.schedule, p);
@@ -3233,7 +3239,7 @@ let S = null;
    so. pwa/build.mjs rewrites this ONE line with the commit count, the commit
    date and the build hash, so a phone can tell an old build from a new one
    without guessing. Nothing here is fetched; it is a constant. */
-const BUILD = {"n":124,"date":"2026-11-14","id":"d5918b0712a5"};
+const BUILD = {"n":126,"date":"2026-11-14","id":"26ab8df2e231"};
 function buildLabel() {
   return BUILD.n ? "Version " + BUILD.n + " · " + BUILD.date + " · build " + BUILD.id : "Development copy — not an installed build";
 }
@@ -3724,7 +3730,7 @@ function viewSettings() {
     const offH = Math.round((24 * 60 - ((minOf(ew.last) || 0) - (minOf(ew.start) || 0))) / 60);
     h += '<div class="card"><div class="eyebrow">Eating window — ' + esc(p.name) + '</div>' +
       '<p class="muted" style="font-size:.8125rem;margin:.35rem 0 .5rem">First meal, last meal, how many meals. Meals outside it fold into the nearest one; plans, logs and calorie targets move with them, nothing is deleted.' +
-      (p.eatWindow ? ' <b>On now: ' + esc(p.eatWindow.start) + ' to ' + esc(p.eatWindow.last) + ', ' + p.eatWindow.meals + ' meals.</b>' : '') + '</p>' +
+      (p.eatWindow ? ' <b>On now: ' + esc(p.eatWindow.start) + ' to ' + esc(p.eatWindow.last) + ', ' + esc(Number(p.eatWindow.meals) | 0) + ' meals.</b>' : '') + '</p>' +
       '<div class="three"><div class="field"><label for="ewS">First meal</label><input id="ewS" type="time" value="' + esc(ew.start) + '" data-act="ewField" data-f="start"></div>' +
       '<div class="field"><label for="ewL">Last meal</label><input id="ewL" type="time" value="' + esc(ew.last) + '" data-act="ewField" data-f="last"></div>' +
       '<div class="field"><label for="ewN">Meals</label><input id="ewN" class="num" type="number" min="2" max="7" step="1" value="' + esc(ew.meals) + '" data-act="ewField" data-f="meals"></div></div>' +
