@@ -1487,7 +1487,7 @@ function resolveItem(it) {
 }
 
 function profile(id) { return S.profiles[id || S.activeProfileId]; }
-function slotOf(p, id) { return p.slots.find(s => s.id === id); }
+function slotOf(p, id) { return p.slots.find(s => s.id === id) || (p.retiredSlots || []).find(s => s.id === id); }
 function slotTime(slot, dateStr) {
   const wd = parseISO(dateStr).getDay();
   const t = slot.timeByWeekday[wd];
@@ -3233,7 +3233,7 @@ let S = null;
    so. pwa/build.mjs rewrites this ONE line with the commit count, the commit
    date and the build hash, so a phone can tell an old build from a new one
    without guessing. Nothing here is fetched; it is a constant. */
-const BUILD = {"n":120,"date":"2026-11-14","id":"6b7605acc5a3"};
+const BUILD = {"n":124,"date":"2026-11-14","id":"d5918b0712a5"};
 function buildLabel() {
   return BUILD.n ? "Version " + BUILD.n + " · " + BUILD.date + " · build " + BUILD.id : "Development copy — not an installed build";
 }
@@ -3717,6 +3717,20 @@ function viewSettings() {
   }
   h += '<p class="muted" style="font-size:.8125rem;margin:.3rem 0 0">Untick a macro and it disappears from the gauges — it is not shown at zero.' +
     (p.floors && p.floors.kcalMin != null ? ' A calorie target below ' + num(p.floors.kcalMin) + ' asks you to confirm it.' : '') + '</p></div>';
+
+  /* LL-662: eating window (adults only) */
+  if (!p.isMinor) {
+    const ew = Object.assign({}, EW_DEFAULT, p.eatWindow ? { start: p.eatWindow.start, last: p.eatWindow.last, meals: p.eatWindow.meals } : {}, UI.ew || {});
+    const offH = Math.round((24 * 60 - ((minOf(ew.last) || 0) - (minOf(ew.start) || 0))) / 60);
+    h += '<div class="card"><div class="eyebrow">Eating window — ' + esc(p.name) + '</div>' +
+      '<p class="muted" style="font-size:.8125rem;margin:.35rem 0 .5rem">First meal, last meal, how many meals. Meals outside it fold into the nearest one; plans, logs and calorie targets move with them, nothing is deleted.' +
+      (p.eatWindow ? ' <b>On now: ' + esc(p.eatWindow.start) + ' to ' + esc(p.eatWindow.last) + ', ' + p.eatWindow.meals + ' meals.</b>' : '') + '</p>' +
+      '<div class="three"><div class="field"><label for="ewS">First meal</label><input id="ewS" type="time" value="' + esc(ew.start) + '" data-act="ewField" data-f="start"></div>' +
+      '<div class="field"><label for="ewL">Last meal</label><input id="ewL" type="time" value="' + esc(ew.last) + '" data-act="ewField" data-f="last"></div>' +
+      '<div class="field"><label for="ewN">Meals</label><input id="ewN" class="num" type="number" min="2" max="7" step="1" value="' + esc(ew.meals) + '" data-act="ewField" data-f="meals"></div></div>' +
+      '<div class="two" style="margin-top:.5rem"><button class="btn primary" data-act="ewApply">Set my eating window</button>' +
+      (p.eatWindow ? '<button class="btn" data-act="ewRestore">Restore my old meal times</button>' : '') + '</div></div>';
+  }
 
   /* slots */
   h += '<div class="card"><div class="eyebrow">Meal times — ' + esc(p.name) + '</div>' +
@@ -6531,13 +6545,18 @@ function validateTemplate(t) {
 }
 /* An import may ADD meal slots the list expects (by name); it never removes or
    renames one, and it never touches a log. */
+/* an import adds meal times by NAME; a folded or renamed meal still counts as there */
+function slotNameTaken(p, name) {
+  const n = String(name || "").trim().toLowerCase();
+  return p.slots.concat(p.retiredSlots || []).some(x => x.name.toLowerCase() === n || (x.was && x.was.toLowerCase() === n));
+}
 function addSlotsFromImport(pid, slots) {
   const p = S.profiles[pid];
   if (!Array.isArray(slots)) return 0;
   let n = 0;
   for (const s of slots.slice(0, 12)) {
     if (!s || typeof s.name !== "string" || !s.name.trim() || s.name.length > 40) continue;
-    if (p.slots.some(x => x.name.toLowerCase() === s.name.trim().toLowerCase())) continue;
+    if (slotNameTaken(p, s.name)) continue;
     const time = /^\d{2}:\d{2}$/.test(String(s.time || "")) ? s.time : null;
     const kcal = Number.isFinite(+s.targetKcal) ? +s.targetKcal : 0, prot = Number.isFinite(+s.targetProtein) ? +s.targetProtein : 0;
     p.slots.push({ id: uid("s"), name: s.name.trim(), timeByWeekday: { def: time }, targetKcal: kcal, targetProtein: prot });
@@ -6777,6 +6796,106 @@ function setSlotTime(pid, slotId, weekday, time) {
   if (!time) { if (key === "def") s.timeByWeekday.def = null; else delete s.timeByWeekday[key]; }
   else s.timeByWeekday[key] = time;
   save();
+}
+/* ---- LL-662: EATING WINDOW ------------------------------------------------
+   Asked for on 2026-11-14: eat 10-6 (16 off / 8 on, nothing in the 2 hrs before
+   bed), 4 meals. His day has more meal slots than that, so the extra slots are
+   FOLDED into the nearest meal: planned items, day templates and logged
+   entries move to the kept slot, targets add up, so a day's total is the same.
+   Nothing is deleted — the folded slots move to p.retiredSlots and one
+   snapshot restores the old times, slots, plans and logs. Never offered on a
+   minor's profile (the same guard as the deficit rule). */
+const EW_DEFAULT = { start: "10:00", last: "17:30", meals: 4 };
+function ewTimes(startMin, lastMin, n) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const m = n === 1 ? startMin : startMin + (lastMin - startMin) * i / (n - 1);
+    const r = Math.round(m / 5) * 5;
+    out.push(String(Math.floor(r / 60)).padStart(2, "0") + ":" + String(r % 60).padStart(2, "0"));
+  }
+  return out;
+}
+/* Split time-ordered slots into n groups of contiguous slots with near-equal calories. */
+function ewGroups(timed, n) {
+  const k = timed.length;
+  if (k <= n) return timed.map(x => [x]);
+  const kc = timed.map(x => (x.targetKcal > 0 ? x.targetKcal : 0));
+  const tot = kc.reduce((a, b) => a + b, 0);
+  const cuts = [];
+  if (tot > 0) {
+    let c = 0; const cum = kc.map(v => (c += v));
+    let prev = 0;
+    for (let g = 1; g < n; g++) {
+      const target = tot * g / n;
+      let best = prev, bd = Infinity;
+      for (let i = prev; i <= k - (n - g) - 1; i++) { const dd = Math.abs(cum[i] - target); if (dd < bd) { bd = dd; best = i; } }
+      cuts.push(best + 1); prev = best + 1;
+    }
+  } else for (let g = 1; g < n; g++) cuts.push(Math.round(k * g / n));
+  const groups = []; let a = 0;
+  for (const c of cuts.concat([k])) { groups.push(timed.slice(a, c)); a = c; }
+  return groups;
+}
+function applyEatingWindow(pid, o) {
+  const p = S.profiles[pid];
+  if (!p) return { ok: false, why: "No such profile." };
+  if (p.isMinor) return { ok: false, why: "An eating window is not offered on a minor's profile." };
+  const st = minOf(o.start), la = minOf(o.last), n = Math.round(+o.meals);
+  if (st == null || la == null || la < st) return { ok: false, why: "Pick the first meal time and a last meal time that is not before it." };
+  if (!(n >= 2 && n <= 7)) return { ok: false, why: "Pick 2 to 7 meals." };
+  if (p.eatWindow) restoreEatingWindow(pid);              // always fold from the ORIGINAL slots
+  const timed = p.slots.filter(x => x.timeByWeekday && x.timeByWeekday.def).sort((a, b) => (a.timeByWeekday.def < b.timeByWeekday.def ? -1 : 1));
+  if (!timed.length) return { ok: false, why: "No timed meals to fit into a window." };
+  const prev = { slots: JSON.parse(JSON.stringify(p.slots)), retired: JSON.parse(JSON.stringify(p.retiredSlots || [])),
+    dayTemplates: JSON.parse(JSON.stringify(p.dayTemplates || {})), plans: {}, logs: [] };
+  for (const [wid, w] of Object.entries(S.plans || {})) for (const [d, byP] of Object.entries(w.days || {})) if (byP && byP[pid]) { (prev.plans[wid] = prev.plans[wid] || {})[d] = JSON.parse(JSON.stringify(byP[pid])); }
+  const groups = ewGroups(timed, n), times = ewTimes(st, la, groups.length);
+  const into = {};                                         // folded slot id -> kept slot id
+  groups.forEach((g, i) => {
+    const keep = g[0];
+    for (const x of g.slice(1)) into[x.id] = keep.id;
+    keep.timeByWeekday = { def: times[i] };
+    const kc = g.map(x => x.targetKcal), pr = g.map(x => x.targetProtein);
+    if (kc.every(v => Number.isFinite(v))) keep.targetKcal = kc.reduce((a, b) => a + b, 0);
+    if (pr.every(v => Number.isFinite(v))) keep.targetProtein = pr.reduce((a, b) => a + b, 0);
+    keep.was = keep.was || keep.name; keep.name = "Meal " + (i + 1);
+  });
+  const foldedIds = Object.keys(into);
+  /* explicit plan cells */
+  for (const w of Object.values(S.plans || {})) for (const byP of Object.values(w.days || {})) {
+    const arr = byP && byP[pid]; if (!Array.isArray(arr)) continue;
+    for (const it of arr) if (into[it.slotId]) it.slotId = into[it.slotId];
+    for (let i = arr.length - 1; i >= 0; i--) if (arr[i].source === "empty" && arr.some(x => x !== arr[i] && x.slotId === arr[i].slotId && x.source !== "empty")) arr.splice(i, 1);
+    const seen = {};                                       // one empty marker per slot is enough
+    for (let i = arr.length - 1; i >= 0; i--) if (arr[i].source === "empty") { if (seen[arr[i].slotId]) arr.splice(i, 1); else seen[arr[i].slotId] = 1; }
+  }
+  /* day templates */
+  for (const [k, t] of Object.entries(p.dayTemplates || {})) {
+    if (k === "byWeekday" || !t || typeof t !== "object") continue;
+    for (const fid of foldedIds) if (t[fid]) { t[into[fid]] = (t[into[fid]] || []).concat(t[fid]); delete t[fid]; }
+  }
+  /* logged entries keep their date and grams; only the slot they sit under changes */
+  for (const [d, arr] of Object.entries((S.logs && S.logs[pid]) || {})) (arr || []).forEach((e, i) => { if (into[e.slotId]) { prev.logs.push([d, i, e.slotId]); e.slotId = into[e.slotId]; } });
+  p.retiredSlots = (p.retiredSlots || []).concat(p.slots.filter(x => into[x.id]).map(x => Object.assign(x, { retiredInto: into[x.id] })));
+  p.slots = p.slots.filter(x => !into[x.id]);
+  p.eatWindow = { start: o.start, last: o.last, meals: groups.length, appliedAt: isoDate(), prev };
+  save();
+  return { ok: true, meals: groups.length, times, folded: foldedIds.length };
+}
+function restoreEatingWindow(pid) {
+  const p = S.profiles[pid];
+  if (!p || !p.eatWindow || !p.eatWindow.prev) return { ok: false, why: "Nothing to restore." };
+  const pv = p.eatWindow.prev;
+  p.slots = JSON.parse(JSON.stringify(pv.slots));
+  p.retiredSlots = JSON.parse(JSON.stringify(pv.retired));
+  p.dayTemplates = JSON.parse(JSON.stringify(pv.dayTemplates));
+  for (const [wid, days] of Object.entries(pv.plans)) for (const [d, arr] of Object.entries(days)) {
+    const w = planWeek(wid, true); w.days[d] = w.days[d] || {}; w.days[d][pid] = JSON.parse(JSON.stringify(arr));
+  }
+  for (const [d, i, sid] of pv.logs) { const e = ((S.logs[pid] || {})[d] || [])[i]; if (e) e.slotId = sid; }
+  delete p.eatWindow;
+  save();
+  return { ok: true };
 }
 function addProfile(name) {
   const n = String(name || "").trim();
@@ -8296,6 +8415,15 @@ const ACTS = {
     if (!r.ok) { alert(r.why); render(); return; }
   },
   slotTime(t) { setSlotTime(profile().id, t.dataset.s, t.dataset.w, t.value); },
+  ewField(t) { UI.ew = Object.assign({}, UI.ew || {}); UI.ew[t.dataset.f] = t.value; },
+  ewApply() {
+    const p = profile(), o = Object.assign({}, EW_DEFAULT, p.eatWindow ? { start: p.eatWindow.start, last: p.eatWindow.last, meals: p.eatWindow.meals } : {}, UI.ew || {});
+    const r = applyEatingWindow(p.id, o);
+    if (!r.ok) { alert(r.why); return; }
+    UI.ew = null; render();
+    toast("Eating window set: " + r.meals + " meals, " + r.times[0] + " to " + r.times[r.times.length - 1] + (r.folded ? ", " + r.folded + " folded in" : "") + ". Restore is in Settings.");
+  },
+  ewRestore() { const r = restoreEatingWindow(profile().id); if (!r.ok) { alert(r.why); return; } UI.ew = null; render(); toast("Your old meal times are back."); },
   profAdd() { UI.onb = onbDefaults(); render(); },
   profEdit(t) { sheetEditProfile(t.dataset.id); },
   onbStart() { UI.onb = onbDefaults(); closeSheet(); render(); },
@@ -9143,7 +9271,7 @@ const ACTS = {
       if (!v.ok) { alert(v.why + " Nothing has been changed."); return; }
       const sc = scheduleOf(p.id);
       const timed = (p.slots || []).filter(x => x.timeByWeekday && x.timeByWeekday.def).length;
-      const addable = Array.isArray(data.slots) ? data.slots.filter(x => x && typeof x.name === "string" && !p.slots.some(y => y.name.toLowerCase() === x.name.trim().toLowerCase())).length : 0;
+      const addable = Array.isArray(data.slots) ? data.slots.filter(x => x && typeof x.name === "string" && !slotNameTaken(p, x.name)).length : 0;
       if (!confirm("Replace " + p.name + "'s day list with this file? Ticks, reflections, meals and logs are kept." + (addable ? " It also adds " + addable + " meal time" + (addable === 1 ? "" : "s") + " this profile does not have yet (none are removed)." : ""))) return;
       sc.previous = JSON.parse(JSON.stringify(sc.template));
       sc.template = v.clean;
